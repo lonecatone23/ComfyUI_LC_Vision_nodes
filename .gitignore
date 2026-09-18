@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+.git_WRONG_NESTED/
+node.zip
+
+*.egg-info/
+dist/
+build/
+
+install_backups/

@@ -1,0 +1,22 @@
+[project]
+name = "ComfyUI_LC_Vision_nodes"
+version = "1.0.8"
+description = "ComfyUI LC Vision Nodes by lonecatone23 — a Qwen-VL GGUF vision/captioning pack built to actually survive shared-VRAM ComfyUI workflows: a Loader + Run split (so the model stays resident instead of being torn down every call), multi-reference input (several independent images plus a video in one call, not just a single batched slot), and an install script that resolves a matching llama-cpp-python vision wheel for the user's own machine instead of pointing at a manual wheel-matching guide. Companion to ComfyUI_LC123_nodes; separate Registry name."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "lonecatone23" }]
+keywords = [
+  "comfyui", "custom-nodes", "qwen-vl", "vision-language", "gguf", "llama-cpp-python",
+  "captioning", "prompt-enhancer", "multi-reference", "video-reference", "lonecat", "lc-vision",
+]
+
+[project.urls]
+Repository = "https://github.com/lonecatone23/ComfyUI_LC_Vision_nodes"
+Homepage = "https://github.com/lonecatone23/ComfyUI_LC_Vision_nodes"
+"Buy me a coffee" = "https://ko-fi.com/lonecatone"
+
+[tool.comfy]
+PublisherId = "lonecatone23"
+DisplayName = "ComfyUI LC Vision Nodes"
+Icon = ""
