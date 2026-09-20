@@ -39,7 +39,9 @@ def _register_llm_folder() -> None:
     if LLM_FOLDER_KEY in folder_paths.folder_names_and_paths:
         return
     base = os.path.join(folder_paths.models_dir, "LLM")
-    folder_paths.folder_names_and_paths[LLM_FOLDER_KEY] = ({base}, {".gguf"})
+    # ComfyUI wants (list of paths, set of extensions). The paths must be a LIST: get_folder_paths() slices it, so a
+    # set there made ComfyUI's model list answer 500 for "LLM" and the frontend show a JSON parse error.
+    folder_paths.folder_names_and_paths[LLM_FOLDER_KEY] = ([base], {".gguf"})
 
 
 _register_llm_folder()
