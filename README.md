@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **Civitai:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.1.0 · **4 Python nodes**
+- **Version:** 1.1.1 · **4 Python nodes**
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -34,7 +34,7 @@ Loads a Qwen-VL GGUF model + its mmproj vision handler once, then hands a persis
 
 - **Model discovery:** scans every path registered under the `LLM` folder key (`models/LLM/GGUF` by default), pairs each model `.gguf` with an mmproj `.gguf` in the same folder. Only lists pairs that actually have both.
 - **Auto-download on first use:** the dropdown also lists a small curated set of `Download:` entries (Qwen3-VL 4B and 8B, each abliterated, each at `Q8_0` or `f16`) that aren't downloaded yet. Picking one pulls it, and its `mmproj-f16`, straight from HuggingFace into the same folder discovery already scans. `Q8_0` for low-VRAM or new setups, `f16` for well-equipped machines and cloud rigs. An entry drops off the list once it's actually on disk.
-- **`device: auto / cuda / cpu`:** any option runs from the same installed wheel. CPU inference doesn't need a separate CPU build.
+- **`device: auto / cuda / cpu`:** any option runs from the same installed wheel, so CPU inference on an NVIDIA machine doesn't need a separate CPU build. ⚠️ The prebuilt wheel is a CUDA build: on AMD, Intel or any machine without an NVIDIA CUDA runtime it cannot load, see *AMD, Intel and other non-NVIDIA GPUs* below.
 - **`n_gpu_layers`:** `-1` offloads everything, `0` forces CPU-only, anything else offloads that many layers.
 - **`n_batch`** also sets `n_ubatch` to match. ⚠️ llama-cpp-python defaults `n_ubatch` to 512 **independently** of `n_batch`. Raising only `n_batch` silently does nothing unless something also raises `n_ubatch`. This node does that for you.
 
@@ -99,6 +99,15 @@ The GGUF-header reader in `lc_vision_loader.py` is the one piece that resembles 
 3. **Run `install.py`** (ComfyUI-Manager does this automatically on install/update). It checks for a vision-capable `llama_cpp` first and does nothing if you already have one. Otherwise it detects your Python, platform, and CUDA version, and installs the matching wheel from `JamePeng/llama-cpp-python` directly.
 4. **Restart ComfyUI.** The console should print the LC Vision load line (4 nodes). If it doesn't, the folder structure is off, go back to step 2.
 5. 💡 Hard-refresh your browser after any `web/` JS update going forward. It won't pick up changes on its own.
+
+### AMD, Intel and other non-NVIDIA GPUs
+- ⚠️ The prebuilt `JamePeng/llama-cpp-python` wheels are **CUDA-only** (plus Metal on macOS). Without an NVIDIA CUDA runtime they cannot be imported, so `install.py` stops there and changes nothing instead of installing a wheel that can't load.
+- You need to build the fork for your backend yourself, with ComfyUI's own Python, a C++ toolchain and CMake:
+  - **Vulkan (AMD or Intel):** install the Vulkan SDK, set `CMAKE_ARGS=-DGGML_VULKAN=on`, then `python -m pip install "llama-cpp-python @ git+https://github.com/JamePeng/llama-cpp-python.git"`
+  - **AMD HIP / ROCm:** the fork's README has the steps (Windows needs the ROCm SDK environment variables set first; Linux uses `CMAKE_ARGS="-DGGML_HIP=ON"`)
+  - **CPU only:** the same pip command with no `CMAKE_ARGS`
+- *note:* I have only tested this pack on NVIDIA. These build steps come from the fork's own README, so treat them as a starting point.
+- If the Loader still says `llama_cpp` is missing, its error now includes the real import error. Send that line with any bug report.
 
 ## License
 

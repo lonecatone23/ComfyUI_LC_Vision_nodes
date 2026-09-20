@@ -458,9 +458,9 @@ class LCVisionLoader:
             import llama_cpp  # noqa: F401
         except Exception as exc:
             raise RuntimeError(
-                "[LC Vision] llama_cpp is not installed, or the installed copy lacks vision "
-                "support. Run this pack's install.py (or see README.md) to install a matching "
-                "vision-capable wheel."
+                "[LC Vision] llama_cpp is not installed, or the installed copy cannot load or lacks vision "
+                f"support ({type(exc).__name__}: {exc}). Run this pack's install.py (or see README.md; AMD/Intel "
+                "GPUs need a source build, see 'AMD, Intel and other non-NVIDIA GPUs')."
             ) from exc
 
         if model_name in CURATED_DOWNLOADS:

@@ -18,16 +18,20 @@ Confirmed directly against the fork's real GitHub Releases at the time
 this was written: each release is tagged
 `v{version}-{cu1XX|Metal}-{win|linux|macos}-{date}` and carries one wheel
 per Python tag (cp310 through cp314) for that OS. There is no separate
-CPU-only wheel for win/linux -- a CUDA-enabled build still runs on CPU via
-n_gpu_layers=0 at the ComfyUI node level, matching this pack's own
-device: auto/cuda/cpu design (see README.md).
+CPU-only wheel for win/linux. A CUDA build runs on CPU via n_gpu_layers=0
+ONLY when the CUDA runtime DLLs are present (they come with a CUDA torch or
+the CUDA toolkit). On a machine with no NVIDIA GPU (AMD/ROCm, Intel, ...) the
+wheel cannot even be imported, so this installer stops there and points at
+README.md instead of installing something that cannot load.
 """
 
 from __future__ import annotations
 
 import json
 import platform
+import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -65,23 +69,26 @@ def _log(msg: str) -> None:
     print(f"[LC Vision install] {msg}")
 
 
+_last_import_error = ""
+
+
 def _already_vision_capable() -> bool:
+    """True when llama_cpp imports and has a Qwen-VL chat handler. Catches every exception, not just
+    ImportError: a wheel whose DLLs cannot load raises OSError/RuntimeError, and the reason is kept in
+    _last_import_error so the failure message can show it."""
+    global _last_import_error
     try:
         import llama_cpp  # noqa: F401
-    except ImportError:
+    except Exception as exc:
+        _last_import_error = f"{type(exc).__name__}: {exc}"
         return False
-    try:
-        from llama_cpp.llama_chat_format import Qwen3VLChatHandler  # noqa: F401
-
-        return True
-    except ImportError:
-        pass
-    try:
-        from llama_cpp.llama_chat_format import Qwen25VLChatHandler  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
+    for handler in ("Qwen3VLChatHandler", "Qwen25VLChatHandler"):
+        try:
+            getattr(__import__("llama_cpp.llama_chat_format", fromlist=[handler]), handler)
+            return True
+        except Exception as exc:
+            _last_import_error = f"{type(exc).__name__}: {exc}"
+    return False
 
 
 def _current_platform_os() -> str:
@@ -120,6 +127,34 @@ def _detected_cuda_version() -> int | None:
         return int(major) * 10 + int(minor)
     except ValueError:
         return None
+
+
+def _is_amd_torch() -> bool:
+    """torch built for ROCm/HIP (AMD)."""
+    try:
+        import torch
+    except ImportError:
+        return False
+    return bool(getattr(torch.version, "hip", None))
+
+
+def _nvidia_driver_present() -> bool:
+    if shutil.which("nvidia-smi"):
+        return True
+    if sys.platform == "win32":
+        return os.path.isfile(os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "nvcuda.dll"))
+    return os.path.exists("/usr/lib/x86_64-linux-gnu/libcuda.so.1") or os.path.exists("/usr/lib64/libcuda.so.1")
+
+
+def _no_prebuilt_wheel_message(amd: bool) -> None:
+    who = "an AMD GPU (ROCm/HIP torch)" if amd else "no NVIDIA GPU"
+    _log(f"This machine has {who}. The prebuilt {REPO} wheels are CUDA builds and cannot load without an NVIDIA CUDA")
+    _log("runtime, so nothing was installed or changed. A vision-capable llama_cpp has to be built for your backend:")
+    _log("  Vulkan (AMD/Intel):  set CMAKE_ARGS=-DGGML_VULKAN=on   then   python -m pip install \"llama-cpp-python @ git+https://github.com/JamePeng/llama-cpp-python.git\"")
+    _log("  AMD HIP/ROCm:        see the fork's README (Windows needs the ROCm SDK env vars set first; Linux: CMAKE_ARGS=\"-DGGML_HIP=ON\")")
+    _log("  CPU only:            the same pip command with no CMAKE_ARGS")
+    _log("Building needs a C++ toolchain and CMake (and the Vulkan SDK for Vulkan). Use ComfyUI's own python for the pip command.")
+    _log("Details and notes: README.md, section 'AMD, Intel and other non-NVIDIA GPUs'.")
 
 
 def _fetch_releases() -> list[dict]:
@@ -277,6 +312,15 @@ def main() -> int:
         _log("A vision-capable llama_cpp (Qwen3VLChatHandler or Qwen25VLChatHandler) is already installed. Nothing to do.")
         return 0
 
+    if _last_import_error:
+        _log(f"llama_cpp is present but not usable: {_last_import_error}")
+
+    if _current_platform_os() != "macos" and _detected_cuda_version() is None:
+        amd = _is_amd_torch()
+        if amd or not _nvidia_driver_present():
+            _no_prebuilt_wheel_message(amd)
+            return 1
+
     _log("No vision-capable llama_cpp found -- installing one from JamePeng/llama-cpp-python.")
     _snapshot_pip_freeze()
 
@@ -310,6 +354,8 @@ def main() -> int:
         return 0
 
     _log("Installed the wheel, but it still doesn't expose a vision chat handler -- something's off. See README.md.")
+    if _last_import_error:
+        _log(f"Import error: {_last_import_error}")
     return 1
 
 
