@@ -27,6 +27,10 @@ NODE_DISPLAY_NAME = "LC Vision Prompt Enhancer 📝"
 
 PRESETS_PATH = Path(__file__).parent / "lc_vision_presets.json"
 CUSTOM_PRESET_LABEL = "Custom"
+# A brand-new node launches on this preset (rather than Custom, whose fresh/empty
+# custom_system_prompt used to hard-error on first run), and it's what Custom
+# falls back to when custom_system_prompt is empty.
+FALLBACK_PRESET = "Enhance"
 
 # Heuristic for "the model only emitted planning/thinking text, not the
 # actual rewritten prompt" -- a small independent detector, not ported
@@ -63,11 +67,12 @@ class LCVisionPromptEnhancer:
     def INPUT_TYPES(cls):
         presets = _load_presets()
         preset_names = [CUSTOM_PRESET_LABEL] + list(presets.keys())
+        default_preset = FALLBACK_PRESET if FALLBACK_PRESET in presets else preset_names[0]
         return {
             "required": {
                 "vision_model": (MODEL_TYPE, {"tooltip": "Handle from LC Vision Loader. Works fine text-only -- nothing image-specific is required."}),
                 "prompt_text": ("STRING", {"multiline": True, "default": "", "tooltip": "The rough prompt to rewrite."}),
-                "preset": (preset_names, {"tooltip": "Which system_prompt from lc_vision_presets.json to rewrite through. 'Custom' reads its system prompt from the custom_system_prompt socket instead. Add more presets by editing that file."}),
+                "preset": (preset_names, {"default": default_preset, "tooltip": "Which system_prompt from lc_vision_presets.json to rewrite through. 'Custom' reads its system prompt from the custom_system_prompt socket instead (an empty one falls back to 'Enhance'). Add more presets by editing that file."}),
             },
             "optional": {
                 "custom_system_prompt": ("STRING", {"multiline": True, "default": "", "tooltip": "Used only when preset is 'Custom' -- read directly instead of a lc_vision_presets.json entry."}),
@@ -123,12 +128,18 @@ class LCVisionPromptEnhancer:
         if vision_model is None or getattr(vision_model, "llm", None) is None:
             raise ValueError("[LC Vision] Prompt Enhancer received no model -- connect an LC Vision Loader.")
 
+        presets = _load_presets()
         if preset == CUSTOM_PRESET_LABEL:
             system_prompt = custom_system_prompt.strip()
             if not system_prompt:
-                raise ValueError("[LC Vision] preset is 'Custom' but custom_system_prompt is empty -- provide a system prompt or pick a preset.")
+                system_prompt = presets.get(FALLBACK_PRESET)
+                if not system_prompt:
+                    raise ValueError(
+                        f"[LC Vision] preset is 'Custom' with no custom_system_prompt, and the fallback preset "
+                        f"'{FALLBACK_PRESET}' isn't in lc_vision_presets.json -- provide a system prompt, pick a preset, or restore that preset."
+                    )
+                print(f"[LC Vision] preset is 'Custom' but custom_system_prompt is empty -- falling back to '{FALLBACK_PRESET}'.")
         else:
-            presets = _load_presets()
             system_prompt = presets.get(preset)
             if not system_prompt:
                 raise ValueError(f"[LC Vision] Preset '{preset}' not found in lc_vision_presets.json.")
