@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **Civitai:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.1.2 · **4 Python nodes**
+- **Version:** 1.1.3 · **4 Python nodes**
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -44,7 +44,7 @@ Handle + prompt + references → text.
 
 - **Up to three independent reference images plus a separate reference video**, each labeled distinctly (`<Reference 1>`, `<Reference 2>`, `<Target Video>`) instead of merged into one batch. That's the actual gap in the upstream node this pack exists to close.
 - **`max_image_side`** downscales references before sending. Oversized references were the direct cause of the original node's "exceeding capacity" crashes, keep it in proportion with the Loader's `n_batch`.
-- **`style_tag`** (shared with Prompt Enhancer): pushes the response toward a specific visual style regardless of what the reference actually looks like. `None / Realistic / Anime / Cartoon / Cinematic / Hentai / Fantasy`.
+- **`style_tag`** (shared with Prompt Enhancer): pushes the response toward a specific visual style regardless of what the reference actually looks like. `None / Realistic / Anime / Cartoon / Cinematic / Hentai / Fantasy / B&W / Noir / Cyberpunk / Illustration / NSFW`.
 - **Self-heals on the upstream decode bug.** Resets context first, and if that specific `llama_decode failed` error still surfaces, rebuilds the model from the Loader's own parameters and retries once, automatically. Any other error is not swallowed.
 
 ## LC Vision Prompt Enhancer 📝
