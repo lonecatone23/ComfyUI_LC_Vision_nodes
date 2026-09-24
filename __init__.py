@@ -47,6 +47,7 @@ _load("lc_vision_loader")
 _load("lc_vision_caption")
 _load("lc_vision_prompt_enhancer")
 _load("lc_vision_moviemaker")
+_load("lc_vision_translate")
 
 WEB_DIRECTORY = "./web"
 

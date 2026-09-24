@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **Civitai:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.1.4 · **4 Python nodes**
+- **Version:** 1.2.0 · **4 Python nodes**
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -67,6 +67,17 @@ Plans a video as N independently-generated segments in **one** LLM call, not N c
 - **Four reference images plus one reference video.** `reference_image_1..4` write back as `<Picture N>` tied to `[Shot N]`. `reference_video` labels as `<Target Video>` and feeds motion/style continuity rather than needing the same per-reference description treatment as a still.
 - **Segments plan on their own local clock.** Early on, the model tried (and reliably failed) to track a running global timestamp across segments itself, it kept resetting to 0:00 no matter how explicitly that was spelled out. Each segment now plans on its own self-contained clock instead, the thing it's actually good at, and the real global timeline gets stitched in afterward by code. Exact every time.
 - **`length_seconds`** defaults to 10.
+
+---
+
+## LC Note translation 🌐
+
+LC Vision is also the translator behind **LC Note 📝** (in LC123). There's no node for it and nothing to wire.
+
+- Pick a ❌ language on an LC Note and click **Translate now**. LC Vision loads a model on its own (text only), translates the note, and unloads it again, so it never sits in your VRAM between clicks.
+- It uses your best local LC Vision model: an 8B quant first, then a 4B quant. Run an LC Vision Loader once if you don't have one yet.
+- Links, `code`, file names and numbers are locked before translation and checked after. If the model changes one, it retries on its own.
+- 💡 It's a 4B-8B model, so it's good, not native. Have someone proofread the languages that matter most to you. Hand edits to a translation are kept.
 
 ---
 
