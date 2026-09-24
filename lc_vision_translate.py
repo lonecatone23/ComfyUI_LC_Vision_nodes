@@ -6,7 +6,7 @@ these routes, this loads an LC Vision GGUF model text-only (no mmproj), translat
 the markdown, and unloads it again so it never sits in VRAM between clicks.
 
   GET  /lc_vision/translate/status  -> {"available": bool, "models": [...], "default": str}
-  POST /lc_vision/translate         {"text", "target", "model"?} -> {"text"} | {"error"}
+  POST /lc_vision/translate         {"text", "target", "model"?, "title"?} -> {"text", "title"} | {"error"}
 
 Code blocks, inline code, URLs and HTML tags are swapped for placeholders before
 the model sees the text and swapped back after, so the markdown survives.
@@ -79,7 +79,32 @@ def _pick_model(requested: str | None):
     return name, models[name][0]
 
 
-def _translate(text: str, target: str, requested_model: str | None) -> str:
+def _run(llm, system: str, text: str, target: str, name: str, what: str) -> str:
+    body, saved = _protect(text)
+    want_nums = _numbers(body)
+    for attempt, temp in enumerate((0.2, 0.05, 0.4)):
+        r = llm.create_chat_completion(
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": body}],
+            max_tokens=min(12000, 200 + len(body) * 3),
+            temperature=temp,
+            top_p=0.9,
+            repeat_penalty=1.05,
+        )
+        out = _clean((r["choices"][0]["message"].get("content") or "").strip())
+        restored, missing = _restore(out, saved)
+        # a marker the model invented (not one of ours) must never reach the note
+        restored = re.sub(r"\s*⟦\d+⟧", "", restored).strip()
+        if out and not missing and _numbers(out) != want_nums:
+            missing = ["numbers"]
+        if out and not missing:
+            print(f"[LC Vision] translated note {what} to {target} with {name}")
+            return restored
+        print(f"[LC Vision] {what} attempt {attempt + 1} lost links, code or numbers ({missing[:3]}), retrying")
+    raise RuntimeError("The model kept changing links, code or numbers in the note. Try again, or shorten the note.")
+
+
+def _translate(text: str, target: str, requested_model: str | None, title: str | None = None):
+    """Returns (text, title). The title is best effort: None if it could not be translated."""
     from llama_cpp import Llama
 
     name, path = _pick_model(requested_model)
@@ -96,7 +121,6 @@ def _translate(text: str, target: str, requested_model: str | None) -> str:
         gpu = 0
     qwen3 = "qwen3" in (gguf_architecture(path) or "").lower()
 
-    body, saved = _protect(text)
     system = (
         f"You are a professional translator. Translate the user's Markdown document into {target}. "
         "Keep the Markdown structure exactly: the same headings, lists, tables, bold and italics, "
@@ -105,27 +129,21 @@ def _translate(text: str, target: str, requested_model: str | None) -> str:
         "Keep every number exactly as written. Output only the translated Markdown, nothing else."
         + (" /no_think" if qwen3 else "")
     )
+    title_system = (
+        f"Translate this short title of a ComfyUI workflow note into {target}. Keep any emoji exactly. "
+        "If a word is a name that should not be translated, keep it. "
+        "Output only the translated title on one line, with nothing added." + (" /no_think" if qwen3 else "")
+    )
     llm = Llama(model_path=path, n_ctx=16384, n_gpu_layers=gpu, verbose=False)
     try:
-        want_nums = _numbers(body)
-        for attempt, temp in enumerate((0.2, 0.05, 0.4)):
-            user = body
-            r = llm.create_chat_completion(
-                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-                max_tokens=min(12000, 200 + len(body) * 3),
-                temperature=temp,
-                top_p=0.9,
-                repeat_penalty=1.05,
-            )
-            out = _clean((r["choices"][0]["message"].get("content") or "").strip())
-            restored, missing = _restore(out, saved)
-            if out and not missing and _numbers(out) != want_nums:
-                missing = ["numbers"]
-            if out and not missing:
-                print(f"[LC Vision] translated note to {target} with {name}")
-                return restored
-            print(f"[LC Vision] translation attempt {attempt + 1} lost links, code or numbers ({missing[:3]}), retrying")
-        raise RuntimeError("The model kept changing links, code or numbers in the note. Try again, or shorten the note.")
+        out = _run(llm, system, text, target, name, "text")
+        out_title = None
+        if title and title.strip():
+            try:
+                out_title = _run(llm, title_system, title.strip(), target, name, "title").splitlines()[0].strip() or None
+            except Exception as e:
+                print(f"[LC Vision] title not translated ({e}); the note shows the original title twice")
+        return out, out_title
     finally:
         del llm
         gc.collect()
@@ -165,8 +183,10 @@ try:
         if not _LOCK.acquire(blocking=False):
             return web.json_response({"error": "Another translation is still running."}, status=409)
         try:
-            out = await asyncio.get_running_loop().run_in_executor(None, _translate, text, target, data.get("model"))
-            return web.json_response({"text": out})
+            out, title = await asyncio.get_running_loop().run_in_executor(
+                None, _translate, text, target, data.get("model"), data.get("title")
+            )
+            return web.json_response({"text": out, "title": title})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
         finally:

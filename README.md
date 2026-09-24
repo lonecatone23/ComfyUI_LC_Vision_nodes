@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **Civitai:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.2.0 · **4 Python nodes**
+- **Version:** 1.2.1 · **4 Python nodes**
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -74,7 +74,7 @@ Plans a video as N independently-generated segments in **one** LLM call, not N c
 
 LC Vision is also the translator behind **LC Note 📝** (in LC123). There's no node for it and nothing to wire.
 
-- Pick a ❌ language on an LC Note and click **Translate now**. LC Vision loads a model on its own (text only), translates the note, and unloads it again, so it never sits in your VRAM between clicks.
+- Pick a ❌ language on an LC Note and click **Translate now**. LC Vision loads a model on its own (text only), translates the note and its title, and unloads it again, so it never sits in your VRAM between clicks.
 - It uses your best local LC Vision model: an 8B quant first, then a 4B quant. Run an LC Vision Loader once if you don't have one yet.
 - Links, `code`, file names and numbers are locked before translation and checked after. If the model changes one, it retries on its own.
 - 💡 It's a 4B-8B model, so it's good, not native. Have someone proofread the languages that matter most to you. Hand edits to a translation are kept.
