@@ -77,6 +77,9 @@ def _already_vision_capable() -> bool:
     ImportError: a wheel whose DLLs cannot load raises OSError/RuntimeError, and the reason is kept in
     _last_import_error so the failure message can show it."""
     global _last_import_error
+    # forget a llama_cpp imported earlier in this run, so a fresh install is really re-checked
+    for mod in [m for m in sys.modules if m == "llama_cpp" or m.startswith("llama_cpp.")]:
+        del sys.modules[mod]
     try:
         import llama_cpp  # noqa: F401
     except Exception as exc:
@@ -84,10 +87,37 @@ def _already_vision_capable() -> bool:
         return False
     for handler in ("Qwen3VLChatHandler", "Qwen25VLChatHandler"):
         try:
-            getattr(__import__("llama_cpp.llama_chat_format", fromlist=[handler]), handler)
-            return True
+            cls = getattr(__import__("llama_cpp.llama_chat_format", fromlist=[handler]), handler)
         except Exception as exc:
             _last_import_error = f"{type(exc).__name__}: {exc}"
+            continue
+        if _uses_mmproj(cls):
+            return True
+        _last_import_error = (
+            f"llama_cpp {getattr(llama_cpp, '__version__', '?')} is the original llama-cpp-python build. "
+            "Its Qwen-VL handler is the old Llava15 one (clip_model_path), which cannot load Qwen3-VL. "
+            "Replacing it with the JamePeng fork."
+        )
+        return False
+    return False
+
+
+def _uses_mmproj(cls) -> bool:
+    """JamePeng-fork handlers take mmproj_path; the upstream Llava15-based ones take clip_model_path."""
+    import inspect
+
+    for klass in cls.__mro__:
+        init = klass.__dict__.get("__init__")
+        if init is None:
+            continue
+        try:
+            params = inspect.signature(init).parameters
+        except (TypeError, ValueError):
+            return False
+        if "mmproj_path" in params:
+            return True
+        if not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+            return False
     return False
 
 

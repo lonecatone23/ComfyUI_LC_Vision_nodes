@@ -1,6 +1,6 @@
 [project]
 name = "ComfyUI_LC_Vision_nodes"
-version = "1.1.3"
+version = "1.1.4"
 description = "ComfyUI LC Vision Nodes by lonecatone23 — a Qwen-VL GGUF vision/captioning pack built to actually survive shared-VRAM ComfyUI workflows: a Loader + Run split (so the model stays resident instead of being torn down every call), multi-reference input (several independent images plus a video in one call, not just a single batched slot), and an install script that resolves a matching llama-cpp-python vision wheel for the user's own machine instead of pointing at a manual wheel-matching guide. Companion to ComfyUI_LC123_nodes; separate Registry name."
 readme = "README.md"
 requires-python = ">=3.10"

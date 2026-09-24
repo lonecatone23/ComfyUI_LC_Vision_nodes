@@ -292,6 +292,27 @@ class LCVisionBuildParams:
     verbose: bool
 
 
+def handler_uses_mmproj(cls) -> bool:
+    """True for the JamePeng-fork chat handlers (mmproj_path + image token args).
+    The original upstream llama-cpp-python also ships a Qwen25VLChatHandler, but it
+    sits on the old Llava15ChatHandler(clip_model_path, verbose) and cannot take them."""
+    import inspect
+
+    for klass in cls.__mro__:
+        init = klass.__dict__.get("__init__")
+        if init is None:
+            continue
+        try:
+            params = inspect.signature(init).parameters
+        except (TypeError, ValueError):
+            return False
+        if "mmproj_path" in params:
+            return True
+        if not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+            return False
+    return False
+
+
 def build_llama(params: LCVisionBuildParams) -> tuple[Any, Any]:
     """Construct a fresh (Llama, chat_handler) pair from build params.
     Shared by the Loader's initial load and Caption's rebuild-on-failure
@@ -311,6 +332,15 @@ def build_llama(params: LCVisionBuildParams) -> tuple[Any, Any]:
             "[LC Vision] Installed llama_cpp has neither Qwen3VLChatHandler nor "
             "Qwen25VLChatHandler -- it doesn't have vision support compiled in. "
             "Run this pack's install.py to fix it."
+        )
+    if not handler_uses_mmproj(handler_cls):
+        import llama_cpp
+
+        raise RuntimeError(
+            f"[LC Vision] Your llama_cpp ({getattr(llama_cpp, '__version__', '?')}) is the original "
+            "llama-cpp-python build. It has an older Qwen-VL handler that cannot load Qwen3-VL models. "
+            "LC Vision needs the JamePeng/llama-cpp-python fork: update this pack in ComfyUI-Manager "
+            "(or run its install.py with ComfyUI's python) and restart ComfyUI. The installer replaces it for you."
         )
 
     chat_handler = handler_cls(
