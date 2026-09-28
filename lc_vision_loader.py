@@ -465,6 +465,14 @@ class LCVisionLoader:
             },
         }
 
+    @classmethod
+    def VALIDATE_INPUTS(cls, model_name):
+        # A 'Download:' entry drops out of the list once its file is on disk, but the
+        # node that downloaded it still holds that label: keep accepting it.
+        if model_name in CURATED_DOWNLOADS or model_name in _discover_vision_models():
+            return True
+        return f"LC Vision model '{model_name}' not found under models/LLM/GGUF."
+
     RETURN_TYPES = (MODEL_TYPE,)
     RETURN_NAMES = ("vision_model",)
     FUNCTION = "load"
@@ -495,11 +503,19 @@ class LCVisionLoader:
                 "GPUs need a source build, see 'AMD, Intel and other non-NVIDIA GPUs')."
             ) from exc
 
+        local_name = None
         if model_name in CURATED_DOWNLOADS:
             entry = CURATED_DOWNLOADS[model_name]
-            target_dir = _curated_target_dir()
-            model_path = _ensure_downloaded(entry["repo_id"], entry["model_file"], target_dir)
-            mmproj_path = _ensure_downloaded(entry["repo_id"], entry["mmproj_file"], target_dir)
+            models = _discover_vision_models()
+            local_name = next((k for k, v in models.items() if os.path.basename(v[0]) == entry["model_file"]), None)
+            if local_name:  # already on disk (downloaded earlier or placed by hand)
+                model_path, mmproj_path = models[local_name]
+            else:
+                target_dir = _curated_target_dir()
+                model_path = _ensure_downloaded(entry["repo_id"], entry["model_file"], target_dir)
+                mmproj_path = _ensure_downloaded(entry["repo_id"], entry["mmproj_file"], target_dir)
+                local_name = next((k for k, v in _discover_vision_models().items()
+                                   if os.path.basename(v[0]) == entry["model_file"]), None)
         else:
             models = _discover_vision_models()
             if model_name not in models:
@@ -548,6 +564,8 @@ class LCVisionLoader:
             n_ctx=n_ctx,
             build_params=build_params,
         )
+        if local_name:  # lets the node swap its 'Download:' entry for the file it now has
+            return {"ui": {"lc_vision_model_name": [local_name]}, "result": (handle,)}
         return (handle,)
 
 
