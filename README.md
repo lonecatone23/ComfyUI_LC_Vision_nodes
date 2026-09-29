@@ -34,6 +34,11 @@ Loads a Qwen-VL GGUF model + its mmproj vision handler once, then hands a persis
 
 - **Model discovery:** scans every path registered under the `LLM` folder key (`models/LLM/GGUF` by default), pairs each model `.gguf` with an mmproj `.gguf` in the same folder. Only lists pairs that actually have both.
 - **Auto-download on first use:** the dropdown also lists a small curated set of `Download:` entries (Qwen3-VL 4B and 8B, each abliterated, each at `Q8_0` or `f16`) that aren't downloaded yet. Picking one pulls it, and its `mmproj-f16`, straight from HuggingFace into the same folder discovery already scans. `Q8_0` for low-VRAM or new setups, `f16` for well-equipped machines and cloud rigs. An entry drops off the list once it's actually on disk.
+    - After the download, the node switches itself to the real file name, so the next run just works.
+- **★ Report suggestion** (only with [LC123](https://github.com/lonecatone23/ComfyUI_LC123_nodes) installed and its **System & Model Optimization Report** run once):
+    - A ★ in front of the model that suits your card, and a line on the node: **★ Report suggests: Qwen3-VL 8B Q8_0 · n_ctx 32768**.
+    - Hover the line for the Quality / Optimal / Fast rows.
+    - It is only a hint. Nothing is picked for you, and the saved model name never changes.
 - **`device: auto / cuda / cpu`:** any option runs from the same installed wheel, so CPU inference on an NVIDIA machine doesn't need a separate CPU build. ⚠️ The prebuilt wheel is a CUDA build: on AMD, Intel or any machine without an NVIDIA CUDA runtime it cannot load, see *AMD, Intel and other non-NVIDIA GPUs* below.
 - **`n_gpu_layers`:** `-1` offloads everything, `0` forces CPU-only, anything else offloads that many layers.
 - **`n_batch`** also sets `n_ubatch` to match. ⚠️ llama-cpp-python defaults `n_ubatch` to 512 **independently** of `n_batch`. Raising only `n_batch` silently does nothing unless something also raises `n_ubatch`. This node does that for you.
