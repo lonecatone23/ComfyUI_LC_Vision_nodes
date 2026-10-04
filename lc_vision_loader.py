@@ -111,12 +111,58 @@ def gguf_architecture(path: str) -> Optional[str]:
     return None
 
 
+def gguf_width(path: str) -> Optional[int]:
+    """The size a vision projector must match: the model's <arch>.embedding_length, or an mmproj's
+    clip.vision.projection_dim (Qwen3-VL 4B = 2560, 8B = 4096). None if unreadable."""
+    try:
+        with open(path, "rb") as f:
+            if f.read(4) != b"GGUF":
+                return None
+            (version,) = struct.unpack("<I", f.read(4))
+            if version not in (2, 3):
+                return None
+            f.read(8)
+            (kv_count,) = struct.unpack("<Q", f.read(8))
+            arch = None
+            for _ in range(kv_count):
+                key = _gguf_read_string(f)
+                (value_type,) = struct.unpack("<I", f.read(4))
+                if key == "general.architecture" and value_type == _GGUF_TYPE_STRING:
+                    arch = _gguf_read_string(f)
+                    continue
+                if (key == "clip.vision.projection_dim" or (arch and key == f"{arch}.embedding_length")) and value_type in (4, 5):
+                    return struct.unpack("<I" if value_type == 4 else "<i", f.read(4))[0]
+                _gguf_skip_value(f, value_type)
+    except Exception:
+        return None
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Model discovery -- pairs each non-mmproj .gguf with an mmproj sibling in
 # the same directory. Only vision-capable pairs are listed: this loader's
 # whole purpose is vision inference, and a bare text-only GGUF here would
 # just be a dead end.
 # ---------------------------------------------------------------------------
+
+def _matching_mmproj(root: str, model_file: str, mmproj_files: list[str]) -> str:
+    """The mmproj that fits the model's size, and of those the one sharing the longest filename start with it."""
+    m = model_file.lower()
+    if len(mmproj_files) > 1:
+        want = gguf_width(os.path.join(root, model_file))
+        fits = [f for f in mmproj_files if want and gguf_width(os.path.join(root, f)) == want]
+        mmproj_files = fits or mmproj_files
+
+    def shared(f: str) -> int:
+        n = 0
+        for a, b in zip(m, f.lower()):
+            if a != b:
+                break
+            n += 1
+        return n
+
+    return max(sorted(mmproj_files), key=shared)
+
 
 def _discover_vision_models() -> dict[str, tuple[str, str]]:
     """Return {display_name: (model_path, mmproj_path)}."""
@@ -135,11 +181,11 @@ def _discover_vision_models() -> dict[str, tuple[str, str]]:
             model_files = [f for f in gguf_files if "mmproj" not in f.lower()]
             if not mmproj_files or not model_files:
                 continue
-            # One mmproj per folder is the overwhelming common case; if a
-            # folder ever has more than one, pair each model with the first
-            # rather than guessing at a naming convention.
-            mmproj_path = os.path.join(root, mmproj_files[0])
+            # Several models can share a folder (every auto-download lands in the LLM root), and a projector
+            # only fits its own model size (4B and 8B differ), so each model gets the mmproj whose filename
+            # matches its own the furthest.
             for model_file in model_files:
+                mmproj_path = os.path.join(root, _matching_mmproj(root, model_file, mmproj_files))
                 display = model_file[:-5] if model_file.lower().endswith(".gguf") else model_file
                 found[display] = (os.path.join(root, model_file), mmproj_path)
 
@@ -343,6 +389,15 @@ def build_llama(params: LCVisionBuildParams) -> tuple[Any, Any]:
             "(or run its install.py with ComfyUI's python) and restart ComfyUI. The installer replaces it for you."
         )
 
+    mw, pw = gguf_width(params.model_path), gguf_width(params.mmproj_path)
+    if mw and pw and mw != pw:
+        raise ValueError(
+            "[LC Vision] This vision projector does not fit this model.\n"
+            f"  model:  {os.path.basename(params.model_path)} (size {mw})\n"
+            f"  mmproj: {os.path.basename(params.mmproj_path)} (made for size {pw})\n"
+            "A projector only fits its own model size (Qwen3-VL 4B = 2560, 8B = 4096). Put the mmproj from the same "
+            "download next to the model; keeping each model in its own folder under models/LLM makes the pairing certain."
+        )
     chat_handler = handler_cls(
         mmproj_path=params.mmproj_path,
         image_min_tokens=params.image_min_tokens,
