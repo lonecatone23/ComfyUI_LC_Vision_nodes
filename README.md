@@ -73,7 +73,7 @@ Prompts built for **SDXL, Pony and Illustrious**. One image in, or a rough idea 
 - **max_tokens:** how long the prompt can be, for every output. The instructions follow it. Rough guide: short caption 80, detailed caption 150, tags 150, mixed 200.
 - **style_tag:** the same styles as the other LC Vision nodes. On tags it adds the real style tags (Anime = `anime coloring, anime screencap`, Realistic = `realistic, photorealistic`, etc.).
 - **quality_tags:** **none**, **Illustrious** (`masterpiece, best quality, ...`), **NoobAI** (`very awa, masterpiece, ...`) or **Pony** (`score_9, score_8_up, ...`). Their opposites go into the negative (`worst quality, low quality` or `score_4, score_5, score_6`). Off by default: they sometimes do more harm than good.
-- **negative** input (optional): your own negative goes first, the automatic tags follow, duplicates removed.
+- **negative** box under the prompt: your own negative goes first, the automatic tags follow, duplicates removed.
 - **positive** and **negative** outputs. The negative always holds the anatomy, artifact and censorship tags (`bad anatomy, malformed hands, fused fingers, blurry, watermark, censored, mosaic censoring, bar censor, ...`).
 - **★ hint on the node:** the Qwen3-VL size that suits your card for this node (it needs only a 4k context), e.g. 4B Q8_0 on 8 GB, 8B Q6_K on 10 GB, 8B Q8_0 on 12 GB and up. Set the Loader to it with **n_ctx 4096** and turn the Loader's **keep_model_loaded** off.
 - One image slot and small token counts on purpose. The other LC Vision nodes are for long prompts (video, Krea 2, Qwen-Image).

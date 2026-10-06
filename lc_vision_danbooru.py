@@ -259,6 +259,9 @@ class LCVisionDanbooruCaption:
                                      "on captions."}),
                 "prompt": ("STRING", {"multiline": True, "default": "", "tooltip": "Prompt enhance: the rough idea to "
                                       "rewrite. Not used in Image analysis."}),
+                "negative": ("STRING", {"multiline": True, "default": "", "tooltip": "Your own negative prompt, used in both "
+                             "modes. It goes first in the negative output, followed by the automatic anatomy / artifact / "
+                             "censorship tags (duplicates removed)."}),
                 "style_tag": (STYLE_TAG_OPTIONS, {"default": "None", "tooltip": "Commits the prompt to a visual style. 'None' "
                                                   "leaves it as the image or idea is."}),
                 "quality_tags": (QUALITY, {"default": "none", "tooltip": "Adds the quality / score tags up front and their opposites to the "
@@ -273,8 +276,6 @@ class LCVisionDanbooruCaption:
             },
             "optional": {
                 "image": ("IMAGE", {"tooltip": "The picture to describe (Image analysis). The first frame of a batch is used."}),
-                "negative": ("STRING", {"forceInput": True, "tooltip": "Your own negative prompt. It goes first in the negative "
-                             "output, followed by the automatic anatomy / artifact / censorship tags (duplicates removed)."}),
             },
         }
 
@@ -290,9 +291,9 @@ class LCVisionDanbooruCaption:
         "matching negative."
     )
 
-    def run(self, vision_model: LCVisionModel, mode: str, output: str, prompt: str = "", style_tag: str = "None",
+    def run(self, vision_model: LCVisionModel, mode: str, output: str, prompt: str = "", negative: str = "", style_tag: str = "None",
             quality_tags: str = "none", max_tokens: int = 150, temperature: float = 0.3, seed: int = 0,
-            image=None, negative: str | None = None) -> tuple[str, str]:
+            image=None) -> tuple[str, str]:
         if vision_model is None or (getattr(vision_model, "llm", None) is None
                                     and getattr(vision_model, "build_params", None) is None):
             raise ValueError("[LC Vision] Danbooru Caption received no model -- connect an LC Vision Loader.")
