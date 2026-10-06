@@ -235,6 +235,16 @@ def _clean(text: str, output: str) -> tuple[list[str], str]:
     return tags, sentence
 
 
+def _merge_negative(user: str | None, auto: str) -> str:
+    """Your negative first, then the automatic tags that aren't already in it."""
+    user = (user or "").strip().strip(",").strip()
+    if not user:
+        return auto
+    have = {re.sub(r"\s+", " ", t.strip().replace("_", " ").lower()) for t in user.split(",")}
+    extra = [t.strip() for t in auto.split(",") if t.strip() and re.sub(r"\s+", " ", t.strip().replace("_", " ").lower()) not in have]
+    return user + (", " + ", ".join(extra) if extra else "")
+
+
 class LCVisionDanbooruCaption:
     @classmethod
     def INPUT_TYPES(cls):
@@ -263,6 +273,8 @@ class LCVisionDanbooruCaption:
             },
             "optional": {
                 "image": ("IMAGE", {"tooltip": "The picture to describe (Image analysis). The first frame of a batch is used."}),
+                "negative": ("STRING", {"forceInput": True, "tooltip": "Your own negative prompt. It goes first in the negative "
+                             "output, followed by the automatic anatomy / artifact / censorship tags (duplicates removed)."}),
             },
         }
 
@@ -280,17 +292,18 @@ class LCVisionDanbooruCaption:
 
     def run(self, vision_model: LCVisionModel, mode: str, output: str, prompt: str = "", style_tag: str = "None",
             quality_tags: str = "none", max_tokens: int = 150, temperature: float = 0.3, seed: int = 0,
-            image=None) -> tuple[str, str]:
+            image=None, negative: str | None = None) -> tuple[str, str]:
         if vision_model is None or (getattr(vision_model, "llm", None) is None
                                     and getattr(vision_model, "build_params", None) is None):
             raise ValueError("[LC Vision] Danbooru Caption received no model -- connect an LC Vision Loader.")
         try:
             return self._caption(vision_model, mode, output, prompt, style_tag, quality_tags, max_tokens, temperature, seed,
-                                 image)
+                                 image, negative)
         finally:
             release(vision_model)  # unloads when the Loader's keep_model_loaded is off
 
-    def _caption(self, vision_model, mode, output, prompt, style_tag, quality_tags, max_tokens, temperature, seed, image):
+    def _caption(self, vision_model, mode, output, prompt, style_tag, quality_tags, max_tokens, temperature, seed, image,
+                 user_negative=None):
         hint = (prompt or "").strip()
         content: list[dict] = []
         if mode == "Image analysis":
@@ -351,7 +364,7 @@ class LCVisionDanbooruCaption:
         q = QUALITY_TAGS.get(quality_tags)
         if q:  # quality / score tags lead (Pony needs score_9 first)
             text = f"{q}, {text}"
-        negative = NEGATIVE_QUALITY.get(quality_tags, "") + NEGATIVE_BASE
+        negative = _merge_negative(user_negative, NEGATIVE_QUALITY.get(quality_tags, "") + NEGATIVE_BASE)
         return (text, negative)
 
 
