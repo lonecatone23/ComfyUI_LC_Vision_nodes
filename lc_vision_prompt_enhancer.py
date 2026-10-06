@@ -18,7 +18,7 @@ import json
 import re
 from pathlib import Path
 
-from .lc_vision_generate import generate_with_recovery
+from .lc_vision_generate import generate_with_recovery, release
 from .lc_vision_loader import LCVisionModel, MODEL_TYPE
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_text
 
@@ -112,7 +112,13 @@ class LCVisionPromptEnhancer:
             raise RuntimeError("[LC Vision] Model returned an empty response.")
         return _strip_think_tags((response["choices"][0].get("message", {}).get("content", "") or "").strip())
 
-    def run(
+    def run(self, *args, **kwargs):
+        try:
+            return self._run(*args, **kwargs)
+        finally:
+            release(kwargs.get("vision_model", args[0] if args else None))
+
+    def _run(
         self,
         vision_model: LCVisionModel,
         prompt_text: str,
@@ -125,7 +131,8 @@ class LCVisionPromptEnhancer:
         repetition_penalty: float = 1.1,
         seed: int = 0,
     ) -> tuple[str]:
-        if vision_model is None or getattr(vision_model, "llm", None) is None:
+        if vision_model is None or (getattr(vision_model, "llm", None) is None
+                                    and getattr(vision_model, "build_params", None) is None):
             raise ValueError("[LC Vision] Prompt Enhancer received no model -- connect an LC Vision Loader.")
 
         presets = _load_presets()

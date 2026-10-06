@@ -40,6 +40,8 @@ Loads a Qwen-VL GGUF model + its mmproj vision handler once, then hands a persis
     - Hover the line for the Quality / Optimal / Fast rows.
     - It is only a hint. Nothing is picked for you, and the saved model name never changes.
 - **`device: auto / cuda / cpu`:** any option runs from the same installed wheel, so CPU inference on an NVIDIA machine doesn't need a separate CPU build. ⚠️ The prebuilt wheel is a CUDA build: on AMD, Intel or any machine without an NVIDIA CUDA runtime it cannot load, see *AMD, Intel and other non-NVIDIA GPUs* below.
+- **`n_ctx`:** **4096 / 8192 / 16384 / 32768**, default **8192**. It is reserved in VRAM up front (about 0.6 / 1.1 / 2.3 / 4.5 GB). 4096 for one image and a short prompt, 8192 for Caption and Prompt Enhancer, 16384–32768 for Moviemaker with several references or video frames. Workflows saved with another number keep it.
+- **`keep_model_loaded`:** on (the default) keeps the model in VRAM between runs. Off: every LC Vision node unloads it once it has answered, so your image model gets the whole card, and the next node or run loads it again (a few seconds). 💡 Turn it off on smaller cards, e.g. with SDXL / Pony / Illustrious.
 - **`n_gpu_layers`:** `-1` offloads everything, `0` forces CPU-only, anything else offloads that many layers.
 - **`n_batch`** also sets `n_ubatch` to match. ⚠️ llama-cpp-python defaults `n_ubatch` to 512 **independently** of `n_batch`. Raising only `n_batch` silently does nothing unless something also raises `n_ubatch`. This node does that for you.
 
@@ -60,6 +62,20 @@ Text-only rewrite pass over the same model handle. A vision model is still a per
 - **`Custom` preset** sits at the top of the dropdown. Reads the system prompt straight from the `custom_system_prompt` socket instead of the JSON file, for full per-workflow control. A new node starts on `Enhance`, and an empty `custom_system_prompt` falls back to `Enhance` instead of erroring.
 - **`style_tag`**, same shared list as Caption.
 - **Think-leak retry:** if the output looks like leftover planning text instead of the actual rewritten prompt, one retry asks explicitly for just the final text.
+
+## LC Vision Danbooru Caption 🏷️
+
+Prompts built for **SDXL, Pony and Illustrious**. One image in, or a rough idea in the prompt box, out comes a prompt short enough for SDXL.
+
+- **mode:** **Image analysis** writes the prompt from the image (the prompt box is not used). **Prompt enhance** rewrites the idea in the prompt box.
+- **output:** **short caption**, **detailed caption**, **Danbooru tags**, or **prompt gen mixed** (one or two plain sentences, then the tags). Each finetune likes a different one: Pony and Illustrious lean on tags, realism finetunes on captions.
+- **Real Danbooru tags only.** Every tag is checked against the real tag list and repaired or dropped: "denim jeans" becomes `jeans`, "smiling" becomes `smile`, made-up tags are removed, and `no humans` next to `1girl` is cleaned out.
+- **max_tokens:** how long the prompt can be, for every output. The instructions follow it. Rough guide: short caption 80, detailed caption 150, tags 150, mixed 200.
+- **style_tag:** the same styles as the other LC Vision nodes. On tags it adds the real style tags (Anime = `anime coloring, anime screencap`, Realistic = `realistic, photorealistic`, etc.).
+- **quality_tags:** **none**, **Illustrious** (`masterpiece, best quality, ...`), **NoobAI** (`very awa, masterpiece, ...`) or **Pony** (`score_9, score_8_up, ...`). Their opposites go into the negative (`worst quality, low quality` or `score_4, score_5, score_6`). Off by default: they sometimes do more harm than good.
+- **positive** and **negative** outputs. The negative always holds the anatomy, artifact and censorship tags (`bad anatomy, malformed hands, fused fingers, blurry, watermark, censored, mosaic censoring, bar censor, ...`).
+- **★ hint on the node:** the Qwen3-VL size that suits your card for this node (it needs only a 4k context), e.g. 4B Q8_0 on 8 GB, 8B Q6_K on 10 GB, 8B Q8_0 on 12 GB and up. Set the Loader to it with **n_ctx 4096** and turn the Loader's **keep_model_loaded** off.
+- One image slot and small token counts on purpose. The other LC Vision nodes are for long prompts (video, Krea 2, Qwen-Image).
 
 ## LC Vision Moviemaker 🎥
 
@@ -103,6 +119,8 @@ LC Vision is also the translator behind **LC Note 📝** (in LC123). There's no 
 `ComfyUI-QwenVL-Mod` (GPL-3.0) has a genuinely good 22-preset library for its Prompt Enhancer. That's real creative content, not mechanical plumbing, so none of it is ported here. Prompt Enhancer ships with a small set of original presets instead.
 
 The GGUF-header reader in `lc_vision_loader.py` is the one piece that resembles upstream code in shape. It isn't ported, it's an independent implementation against the [public GGUF spec](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md), about as mechanical as code gets.
+
+`danbooru_tags.csv` is the tag list from SmilingWolf's WD tagger models ([Here](https://huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3)), Apache-2.0. Used by LC Vision Danbooru Caption to keep only real Danbooru tags.
 
 ## Install
 

@@ -51,7 +51,13 @@ async function addHint(node) {
 app.registerExtension({
   name: "LCVision.LoaderReportHint",
   nodeCreated(node) { if (node.comfyClass === "LCVisionLoader") addHint(node); },
-  loadedGraphNode(node) { if (node.comfyClass === "LCVisionLoader") addHint(node); },
+  loadedGraphNode(node) {
+    if (node.comfyClass !== "LCVisionLoader") return;
+    // workflows saved before keep_model_loaded existed carry '' in its slot: show it as on (what they did before)
+    const k = (node.widgets || []).find((x) => x.name === "keep_model_loaded");
+    if (k && typeof k.value !== "boolean") k.value = true;
+    addHint(node);
+  },
 });
 
 // After a "⬇ Download:" entry has downloaded, point the dropdown at the file it now has on disk,

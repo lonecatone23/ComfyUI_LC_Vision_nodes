@@ -428,6 +428,10 @@ class LCVisionModel:
     is_qwen3_family: bool
     n_ctx: int
     build_params: "LCVisionBuildParams" = field(default=None)
+    keep_loaded: bool = True
+
+
+N_CTX_CHOICES = ["4096", "8192", "16384", "32768"]
 
 
 class LCVisionLoader:
@@ -477,13 +481,15 @@ class LCVisionLoader:
                     },
                 ),
                 "n_ctx": (
-                    "INT",
+                    N_CTX_CHOICES,
                     {
-                        "default": 32768,
-                        "min": 512,
-                        "max": 131072,
-                        "step": 512,
-                        "tooltip": "Context window in tokens.",
+                        "default": "8192",
+                        "tooltip": "How much the model can read and write in one go (the context window, in tokens). It is "
+                                   "reserved in VRAM up front, whether used or not: 4096 = about 0.6 GB, 8192 = 1.1 GB, "
+                                   "16384 = 2.3 GB, 32768 = 4.5 GB.\n"
+                                   "4096: one image and a short prompt (LC Vision Danbooru Caption).\n"
+                                   "8192: Caption, Prompt Enhancer, a few reference images. The default.\n"
+                                   "16384 / 32768: Moviemaker with several references or video frames and long answers.",
                     },
                 ),
                 "n_batch": (
@@ -517,11 +523,18 @@ class LCVisionLoader:
                     {"default": 1024, "min": 64, "max": 16384, "tooltip": "The vision chat handler's own per-batch token limit for image embedding, separate from n_batch/n_ubatch. Raise alongside n_batch for multiple large references."},
                 ),
                 "verbose": ("BOOLEAN", {"default": False, "tooltip": "Print llama.cpp's own internal load/inference diagnostics to the console. Off by default to keep logs readable."}),
+                "keep_model_loaded": ("BOOLEAN", {"default": True, "tooltip": "On: the model stays in VRAM between runs (fast reruns). Off: every LC Vision node unloads it once it has answered, so the image model gets the whole card, and the next node or run loads it again (a few seconds). Turn it off on smaller cards, e.g. with SDXL / Pony / Illustrious."}),
             },
         }
 
     @classmethod
-    def VALIDATE_INPUTS(cls, model_name):
+    def VALIDATE_INPUTS(cls, model_name, n_ctx):
+        # n_ctx: workflows saved before it was a list carry any number (e.g. 32768, 20000): keep accepting them
+        try:
+            if int(n_ctx) < 512:
+                return f"n_ctx {n_ctx} is too small (512 at least)."
+        except (TypeError, ValueError):
+            return f"n_ctx '{n_ctx}' is not a number."
         # A 'Download:' entry drops out of the list once its file is on disk, but the
         # node that downloaded it still holds that label: keep accepting it.
         if model_name in CURATED_DOWNLOADS or model_name in _discover_vision_models():
@@ -542,12 +555,13 @@ class LCVisionLoader:
         model_name: str,
         device: str = "auto",
         n_gpu_layers: int = -1,
-        n_ctx: int = 32768,
+        n_ctx="8192",
         n_batch: int = 2048,
         image_min_tokens: int = 1024,
         image_max_tokens: int = -1,
         batch_max_tokens: int = 1024,
         verbose: bool = False,
+        keep_model_loaded: bool = True,
     ) -> tuple[LCVisionModel]:
         try:
             import llama_cpp  # noqa: F401
@@ -596,7 +610,7 @@ class LCVisionLoader:
             mmproj_path=str(mmproj_path),
             device_kind=device_kind,
             n_gpu_layers=effective_gpu_layers,
-            n_ctx=n_ctx,
+            n_ctx=int(n_ctx),
             n_batch=n_batch,
             image_min_tokens=image_min_tokens,
             image_max_tokens=image_max_tokens,
@@ -616,8 +630,9 @@ class LCVisionLoader:
             model_name=model_name,
             architecture=arch,
             is_qwen3_family=is_qwen3_family,
-            n_ctx=n_ctx,
+            n_ctx=int(n_ctx),
             build_params=build_params,
+            keep_loaded=keep_model_loaded is not False,  # older saves put '' in this slot: they keep the model loaded, as before
         )
         if local_name:  # lets the node swap its 'Download:' entry for the file it now has
             return {"ui": {"lc_vision_model_name": [local_name]}, "result": (handle,)}

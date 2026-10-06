@@ -26,6 +26,7 @@ const TYPES = new Set([
   "LCVisionCaption",
   "LCVisionPromptEnhancer",
   "LCVisionMoviemaker",
+  "LCVisionDanbooruCaption",
 ]);
 
 app.registerExtension({

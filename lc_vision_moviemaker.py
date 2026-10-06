@@ -35,7 +35,7 @@ import re
 from pathlib import Path
 
 from .lc_vision_caption import _image_input_to_base64_list, _sample_indices
-from .lc_vision_generate import generate_with_recovery
+from .lc_vision_generate import generate_with_recovery, release
 from .lc_vision_loader import LCVisionModel, MODEL_TYPE
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_content
 
@@ -278,7 +278,13 @@ class LCVisionMoviemaker:
         "segment is a self-contained MiniMax H3 prompt while the whole arc stays continuous."
     )
 
-    def run(
+    def run(self, *args, **kwargs):
+        try:
+            return self._run(*args, **kwargs)
+        finally:
+            release(kwargs.get("vision_model", args[0] if args else None))
+
+    def _run(
         self,
         vision_model: LCVisionModel,
         story: str,
@@ -302,7 +308,8 @@ class LCVisionMoviemaker:
         repetition_penalty: float = 1.1,
         seed: int = 0,
     ) -> tuple:
-        if vision_model is None or getattr(vision_model, "llm", None) is None:
+        if vision_model is None or (getattr(vision_model, "llm", None) is None
+                                    and getattr(vision_model, "build_params", None) is None):
             raise ValueError("[LC Vision] Moviemaker received no model -- connect an LC Vision Loader.")
 
         references = [reference_image_1, reference_image_2, reference_image_3, reference_image_4]
