@@ -51,6 +51,7 @@ Handle + prompt + references → text.
 
 - **Up to three independent reference images plus a separate reference video**, each labeled distinctly (`<Reference 1>`, `<Reference 2>`, `<Target Video>`) instead of merged into one batch. That's the actual gap in the upstream node this pack exists to close.
 - **`max_image_side`** downscales references before sending. Oversized references were the direct cause of the original node's "exceeding capacity" crashes, keep it in proportion with the Loader's `n_batch`.
+- **`max_tokens`** is a length limit the model actually follows: it's told to fit under it and end on a whole sentence. If it still runs over, the text is cut back to the last complete sentence, so a low limit gives a shorter caption, never a chopped one. Same for Prompt Enhancer.
 - **`style_tag`** (shared with Prompt Enhancer): pushes the response toward a specific visual style regardless of what the reference actually looks like. `None / Realistic / Anime / Cartoon / Cinematic / Hentai / Fantasy / B&W / Noir / Cyberpunk / Illustration / NSFW`.
 - **Self-heals on the upstream decode bug.** Resets context first, and if that specific `llama_decode failed` error still surfaces, rebuilds the model from the Loader's own parameters and retries once, automatically. Any other error is not swallowed.
 

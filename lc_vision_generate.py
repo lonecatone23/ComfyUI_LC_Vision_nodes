@@ -169,3 +169,33 @@ def generate_with_recovery(model: LCVisionModel, **chat_kwargs: Any) -> dict:
             except Exception as close_exc:
                 print(f"[LC Vision] old instance close() failed (non-fatal): {close_exc}")
         return model.llm.create_chat_completion(**chat_kwargs)
+
+
+# ---- token budget: a capped answer should end on a whole sentence, not mid-word ----
+import re as _re
+
+_SENT_END = _re.compile(r"[.!?…](?:[\"')\]]*)(?=\s|$)")
+
+
+def budget_line(max_tokens: int) -> str:
+    """One line for the system prompt so the model plans its answer to fit under max_tokens.
+    English runs about 0.75 words per token; 0.55 leaves room for punctuation and formatting."""
+    words = max(8, int(max_tokens * 0.55))
+    return f" Keep the whole answer under {words} words and finish on a complete sentence."
+
+
+def trim_to_sentence(text: str, response: dict) -> str:
+    """If generation stopped at the token cap, cut back to the last complete sentence."""
+    try:
+        hit_cap = response["choices"][0].get("finish_reason") == "length"
+    except (KeyError, IndexError, TypeError, AttributeError):
+        hit_cap = False
+    text = (text or "").rstrip()
+    if not hit_cap or not text or _re.search(r"[.!?…][\"')\]]*$", text):
+        return text
+    ends = list(_SENT_END.finditer(text))
+    if ends:  # a shorter answer beats one that stops mid-thought
+        return text[: ends[-1].end()].rstrip()
+    # no usable sentence end: drop the cut-off word and close the sentence
+    cut = text.rsplit(" ", 1)[0].rstrip(",;:-–— ")
+    return cut + "."

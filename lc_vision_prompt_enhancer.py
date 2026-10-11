@@ -18,7 +18,7 @@ import json
 import re
 from pathlib import Path
 
-from .lc_vision_generate import generate_with_recovery, release
+from .lc_vision_generate import budget_line, generate_with_recovery, release, trim_to_sentence
 from .lc_vision_loader import LCVisionModel, MODEL_TYPE
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_text
 
@@ -77,7 +77,7 @@ class LCVisionPromptEnhancer:
             "optional": {
                 "custom_system_prompt": ("STRING", {"multiline": True, "default": "", "tooltip": "Used only when preset is 'Custom' -- read directly instead of a lc_vision_presets.json entry."}),
                 "style_tag": (STYLE_TAG_OPTIONS, {"default": "None", "tooltip": "Commits the rewritten prompt to a specific visual style, on top of whatever the preset already does. 'None' leaves style unconstrained."}),
-                "max_tokens": ("INT", {"default": 1024, "min": 16, "max": 16384, "tooltip": "Upper limit on generated tokens. Generation can stop earlier on its own; this only caps the ceiling."}),
+                "max_tokens": ("INT", {"default": 1024, "min": 16, "max": 16384, "tooltip": "Length limit. The model is told to fit its answer under it (about 0.55 words per token), and if it still runs over, the text is cut back to the last complete sentence."}),
                 "temperature": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.05, "tooltip": "Sampling randomness. 0 = deterministic and literal, higher = more varied wording at some cost to focus."}),
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Nucleus sampling: only sample from the smallest set of tokens covering this cumulative probability. Lower = more focused, higher = more varied."}),
                 "repetition_penalty": ("FLOAT", {"default": 1.1, "min": 0.5, "max": 2.0, "step": 0.01, "tooltip": "Penalizes tokens the model has already used, to discourage repetitive or looping output. 1.0 = no penalty."}),
@@ -99,7 +99,7 @@ class LCVisionPromptEnhancer:
         response = generate_with_recovery(
             vision_model,
             messages=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": system_prompt + budget_line(max_tokens)},
                 {"role": "user", "content": effective_user},
             ],
             max_tokens=max_tokens,
@@ -110,7 +110,8 @@ class LCVisionPromptEnhancer:
         )
         if not response or "choices" not in response or not response["choices"]:
             raise RuntimeError("[LC Vision] Model returned an empty response.")
-        return _strip_think_tags((response["choices"][0].get("message", {}).get("content", "") or "").strip())
+        text = _strip_think_tags((response["choices"][0].get("message", {}).get("content", "") or "").strip())
+        return trim_to_sentence(text, response)
 
     def run(self, *args, **kwargs):
         try:

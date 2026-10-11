@@ -21,7 +21,7 @@ import io
 import numpy as np
 from PIL import Image
 
-from .lc_vision_generate import generate_with_recovery, release
+from .lc_vision_generate import budget_line, generate_with_recovery, release, trim_to_sentence
 from .lc_vision_loader import LCVisionModel, MODEL_TYPE
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_content
 
@@ -101,7 +101,7 @@ class LCVisionCaption:
                 "style_tag": (STYLE_TAG_OPTIONS, {"default": "None", "tooltip": "Pushes the response toward a specific visual-style description regardless of the reference's actual look -- useful when captioning a realistic reference but wanting an anime/cinematic/etc. framing out. 'None' leaves style unconstrained."}),
                 "max_image_side": ("INT", {"default": 768, "min": 0, "max": 4096, "tooltip": "Downscale any reference longer edge to this before sending. 0 = no resize. Oversized references were the direct cause of the original node's 'exceeding capacity' crashes; keep this and n_batch (on the Loader) in proportion to each other."}),
                 "jpeg_quality": ("INT", {"default": 90, "min": 10, "max": 100, "tooltip": "JPEG encoding quality for references sent to the model. Higher = better fidelity but a larger payload -- lower this before raising max_image_side if you're hitting capacity limits."}),
-                "max_tokens": ("INT", {"default": 1024, "min": 16, "max": 16384, "tooltip": "Upper limit on generated tokens. Generation can stop earlier on its own; this only caps the ceiling."}),
+                "max_tokens": ("INT", {"default": 1024, "min": 16, "max": 16384, "tooltip": "Length limit. The model is told to fit its answer under it (about 0.55 words per token), and if it still runs over, the text is cut back to the last complete sentence."}),
                 "temperature": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 2.0, "step": 0.05, "tooltip": "Sampling randomness. 0 = deterministic and literal, higher = more varied wording at some cost to focus."}),
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Nucleus sampling: only sample from the smallest set of tokens covering this cumulative probability. Lower = more focused, higher = more varied."}),
                 "repetition_penalty": ("FLOAT", {"default": 1.1, "min": 0.5, "max": 2.0, "step": 0.01, "tooltip": "Penalizes tokens the model has already used, to discourage repetitive or looping output. 1.0 = no penalty."}),
@@ -180,7 +180,7 @@ class LCVisionCaption:
             effective_user_content = [{"type": "text", "text": "/no_think"}] + content
 
         messages = [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": (system_prompt or "") + budget_line(max_tokens)},
             {"role": "user", "content": effective_user_content},
         ]
 
@@ -198,7 +198,7 @@ class LCVisionCaption:
             raise RuntimeError("[LC Vision] Model returned an empty response.")
 
         text = (response["choices"][0].get("message", {}).get("content", "") or "").strip()
-        return (text,)
+        return (trim_to_sentence(text, response),)
 
 
 NODE_CLASS_MAPPINGS = {
