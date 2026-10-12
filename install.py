@@ -9,10 +9,11 @@ merged upstream -- see README.md for why a plain requirements.txt can
 never resolve this on its own) if one isn't already present.
 
 Safe to re-run on every update: does nothing if a vision-capable llama_cpp
-is already importable. Never touches other dependencies except numpy/
-pillow, and even then only in response to a real conflict `pip check`
-itself reports after install -- never a hardcoded version pin. Snapshots
-`pip freeze` before making any change.
+is already importable. Never touches any other package: the wheel goes in
+with --no-deps, and a numpy/pillow mismatch `pip check` reports afterwards
+is only logged. (The fork's metadata pins numpy<=2.3.2, but its wheels run
+fine on newer numpy; reinstalling numpy to satisfy that pin would downgrade
+it for every other pack.) Snapshots `pip freeze` before making any change.
 
 Confirmed directly against the fork's real GitHub Releases at the time
 this was written: each release is tagged
@@ -296,11 +297,9 @@ def _install_wheel(url: str) -> bool:
     return result.returncode == 0
 
 
-def _fix_measured_conflicts() -> None:
-    """Only touches numpy/pillow, only when llama-cpp-python itself is the
-    package pip says is unhappy, and only with the exact requirement pip
-    itself just reported -- never a hardcoded pin. See _OUR_PACKAGE_NAMES
-    for why the dependent-name check matters."""
+def _report_measured_conflicts() -> None:
+    """Reports numpy/pillow mismatches that llama-cpp-python itself has, and changes nothing.
+    See _OUR_PACKAGE_NAMES for why the dependent-name check matters."""
     result = _run_pip(["check"])
     if result.returncode == 0:
         _log("pip check: no conflicts.")
@@ -333,8 +332,8 @@ def _fix_measured_conflicts() -> None:
         return
 
     for pkg, requirement in fixes.items():
-        _log(f"llama-cpp-python needs a different {pkg} -- installing pip's own measured requirement: {requirement}")
-        _run_pip(["install", requirement])
+        _log(f"llama-cpp-python's metadata asks for {requirement}. Leaving your {pkg} as it is: other packs depend on it, "
+             "and the wheel is checked below by actually importing it.")
 
 
 def main() -> int:
@@ -377,7 +376,7 @@ def main() -> int:
         _log("pip install failed -- see the output above. See README.md to install manually.")
         return 1
 
-    _fix_measured_conflicts()
+    _report_measured_conflicts()
 
     if _already_vision_capable():
         _log("Install verified -- Qwen3VLChatHandler/Qwen25VLChatHandler is now importable.")
