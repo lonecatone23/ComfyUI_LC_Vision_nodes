@@ -279,30 +279,139 @@ function wireTours(body) {
   }));
 }
 
+const MAX_TOUR_SETTINGS = 8;
+
 function renderTourEdit(body) {
   const t = ui.tourEdit;
+  const nodeName = (id) => {
+    const n = app.graph?.getNodeById?.(Number(id)) || app.graph?.getNodeById?.(id);
+    return n ? core.nodeLabel(n) : `#${id}`;
+  };
+  const picker = (st, i) => {
+    if (st.settings.length >= MAX_TOUR_SETTINGS) return `<div class="va-sub">${MAX_TOUR_SETTINGS} settings is the most a step shows.</div>`;
+    const marked = new Set(st.settings.map((x) => `${x.node}|${x.widget}`));
+    const opts = tour.stepChoices(st).filter((c) => !marked.has(`${c.node}|${c.widget}`));
+    if (!opts.length) return `<div class="va-sub">Select a node on the canvas to mark one of its settings here.</div>`;
+    const groups = [...new Set(opts.map((c) => c.group))];
+    return `<select class="va-input" data-add="${i}" title="Marks this setting with the next number on the canvas. Select a node first to mark one outside this step.">
+      <option value="">+ Add a setting…</option>
+      ${groups.map((g) => `<optgroup label="${esc(g)}">${opts.filter((c) => c.group === g)
+        .map((c) => `<option value="${esc(`${c.node}|${c.widget}`)}">${esc(c.label)}</option>`).join("")}</optgroup>`).join("")}
+    </select>`;
+  };
+  const groupsAll = app.graph?._groups || [];
+  const groupLabel = (g, idx) => {
+    const same = groupsAll.filter((x) => x.title === g.title);
+    return same.length > 1 ? `${g.title} (${same.indexOf(g) + 1} of ${same.length})` : g.title || `Group ${idx + 1}`;
+  };
+  const targetOf = (st) => {
+    const gs = (st.groups || (st.group ? [st.group] : [])).map((r) => r.title).filter(Boolean);
+    return gs.length ? gs.join(", ") : `${(st.nodes || []).length} node${(st.nodes || []).length === 1 ? "" : "s"}`;
+  };
+  const picked = Object.keys(app.canvas?.selected_nodes || {});
+  const btn = (attr, label, tip, off) => `<button class="va-link" ${attr} title="${tip}" ${off ? "disabled style=\"opacity:.35\"" : ""}>${label}</button>`;
   body.innerHTML = `
     <div class="va-name" style="font-weight:600">Edit tour</div>
-    <div class="va-hint">Change the words people see. The parts and the marked settings stay as they are.</div>
+    <div class="va-hint">Change the words, the steps and which settings get a numbered marker. 💡 To use nodes outside a step (or as a new step), select them on the canvas first.</div>
     <input class="va-input" data-f="title" value="${esc(t.title)}" title="The tour's name">
-    ${t.steps.map((st, i) => `<div class="va-group">Step ${i + 1}</div>
+    ${t.steps.map((st, i) => `<div class="va-group" style="display:flex;align-items:center;gap:8px">
+        <span>Step ${i + 1}</span><span class="va-sub" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(targetOf(st))}</span>
+        ${btn(`data-mv="${i}|-1"`, "↑", "Move up", i === 0)}${btn(`data-mv="${i}|1"`, "↓", "Move down", i === t.steps.length - 1)}${btn(`data-del="${i}"`, "×", "Remove this step")}</div>
       <input class="va-input" data-st="${i}" data-k="title" value="${esc(st.title)}">
       <textarea class="va-input" data-st="${i}" data-k="text" rows="3" style="resize:vertical;font-family:inherit">${esc(st.text)}</textarea>
-      ${st.settings.map((x) => `<div class="va-sub">• ${esc(x.widget)}: <input class="va-input" style="display:inline-block;width:auto;min-width:60%;padding:2px 6px" data-set="${i}|${esc(x.node)}|${esc(x.widget)}" value="${esc(x.why)}"></div>`).join("")}`).join("")}
+      ${st.settings.map((x, k) => `<div class="va-sub" style="display:flex;gap:6px;align-items:center;margin-top:4px">
+        <span style="white-space:nowrap">${k + 1}. ${esc(nodeName(x.node))} › ${esc(tour.widgetLabel(x.node, x.widget))}:</span>
+        <input class="va-input" style="flex:1;min-width:0;padding:2px 6px" data-set="${i}|${k}" value="${esc(x.why)}" placeholder="Why it matters">
+        <button class="va-link" data-rm="${i}|${k}" title="Remove this marker">×</button></div>`).join("")}
+      ${picker(st, i)}`).join("")}
+    <div class="va-group" style="margin-top:12px">Add a step</div>
+    <select class="va-input" data-ns="target" title="What the step lights up on the canvas">
+      <option value="">Light up…</option>
+      ${picked.length ? `<optgroup label="Selected on the canvas"><option value="sel">The ${picked.length} selected node${picked.length === 1 ? "" : "s"}</option></optgroup>` : ""}
+      <optgroup label="Groups">${groupsAll.map((g, gi) => `<option value="g|${gi}">${esc(groupLabel(g, gi))}</option>`).join("")}</optgroup>
+    </select>
+    <div style="display:flex;gap:6px;margin-top:4px">
+      <select class="va-input" data-ns="pos" style="flex:1" title="Where it goes in the tour">
+        <option value="${t.steps.length}">at the end</option>
+        ${t.steps.map((st, i) => `<option value="${i + 1}">after step ${i + 1}: ${esc(st.title)}</option>`).join("")}
+      </select>
+      <button class="va-btn" data-ns="add">+ Add step</button>
+    </div>
     <div class="va-actions" style="margin-top:8px"><button class="va-btn pri" data-te="save">Save</button><button class="va-btn" data-te="cancel">Cancel</button></div>`;
-  body.querySelectorAll("input, textarea").forEach((el) => (el.onkeydown = (e) => e.stopPropagation()));
+  body.querySelectorAll("input, textarea, select").forEach((el) => (el.onkeydown = (e) => e.stopPropagation()));
+  // copy what's typed into the tour before anything redraws the editor
+  const collect = () => {
+    t.title = body.querySelector('[data-f="title"]').value.trim() || t.title;
+    body.querySelectorAll("[data-st]").forEach((el) => (t.steps[Number(el.dataset.st)][el.dataset.k] = el.value.trim()));
+    body.querySelectorAll("[data-set]").forEach((el) => {
+      const [i, k] = el.dataset.set.split("|").map(Number);
+      if (t.steps[i]?.settings[k]) t.steps[i].settings[k].why = el.value.trim();
+    });
+  };
+  const keepScroll = (fn) => {
+    const top = body.scrollTop;
+    fn();
+    renderTourEdit(body);
+    body.scrollTop = top;
+  };
+  body.querySelectorAll("[data-add]").forEach((sel) => (sel.onchange = () => {
+    if (!sel.value) return;
+    const [node, widget] = sel.value.split("|");
+    keepScroll(() => {
+      collect();
+      t.steps[Number(sel.dataset.add)].settings.push({ node: Number(node) || node, widget, why: "" });
+    });
+    body.querySelector(`[data-set="${sel.dataset.add}|${t.steps[Number(sel.dataset.add)].settings.length - 1}"]`)?.focus();
+  }));
+  body.querySelectorAll("[data-rm]").forEach((b) => (b.onclick = () => {
+    const [i, k] = b.dataset.rm.split("|").map(Number);
+    keepScroll(() => {
+      collect();
+      t.steps[i].settings.splice(k, 1);
+    });
+  }));
+  body.querySelectorAll("[data-mv]").forEach((b) => (b.onclick = () => {
+    const [i, d] = b.dataset.mv.split("|").map(Number);
+    keepScroll(() => {
+      collect();
+      const [st] = t.steps.splice(i, 1);
+      t.steps.splice(i + d, 0, st);
+    });
+  }));
+  body.querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => {
+    if (t.steps.length <= 1) return toast("info", "A tour needs at least one step");
+    keepScroll(() => {
+      collect();
+      t.steps.splice(Number(b.dataset.del), 1);
+    });
+  }));
+  body.querySelector('[data-ns="add"]').onclick = () => {
+    const target = body.querySelector('[data-ns="target"]').value;
+    if (!target) return toast("info", "Pick what the step lights up", "A group, or select nodes on the canvas first.");
+    const pos = Number(body.querySelector('[data-ns="pos"]').value);
+    let step;
+    if (target === "sel") {
+      const ns = picked.map((id) => app.graph.getNodeById(Number(id)) || app.graph.getNodeById(id)).filter(Boolean);
+      step = { title: ns.length === 1 ? core.nodeLabel(ns[0]) : "New step", text: "", nodes: ns.map((n) => n.id), settings: [] };
+    } else {
+      const gi = Number(target.split("|")[1]);
+      const g = groupsAll[gi];
+      step = { title: String(g.title || "New step").replace(/^#\s*/, "").trim(), text: "", groups: [{ title: g.title, index: gi }], nodes: [], settings: [] };
+    }
+    keepScroll(() => {
+      collect();
+      t.steps.splice(pos, 0, step);
+    });
+    const el = body.querySelector(`[data-st="${pos}"][data-k="text"]`);
+    el?.scrollIntoView({ block: "center" });
+    el?.focus();
+  };
   body.querySelector('[data-te="cancel"]').onclick = () => {
     ui.view = "list";
     render();
   };
   body.querySelector('[data-te="save"]').onclick = () => {
-    t.title = body.querySelector('[data-f="title"]').value.trim() || t.title;
-    body.querySelectorAll("[data-st]").forEach((el) => (t.steps[Number(el.dataset.st)][el.dataset.k] = el.value.trim()));
-    body.querySelectorAll("[data-set]").forEach((el) => {
-      const [i, node, widget] = el.dataset.set.split("|");
-      const x = t.steps[Number(i)].settings.find((y) => String(y.node) === node && y.widget === widget);
-      if (x) x.why = el.value.trim();
-    });
+    collect();
     tour.save(t); // locks it again
     ui.view = "list";
     toast("success", "Tour saved and locked", "Save the workflow to keep it.");

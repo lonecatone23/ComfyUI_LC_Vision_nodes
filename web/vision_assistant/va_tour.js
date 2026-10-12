@@ -12,6 +12,11 @@ const nodes = () => app.graph?._nodes || [];
 const isNote = (n) => /Note|Label|Reroute|Primitive$/i.test(n.type);
 const groupsOf = () => app.graph?._groups || [];
 const byId = (id) => nodes().find((n) => String(n.id) === String(id));
+/** What a setting is called on the node face (panel toggles carry their target's name as a label, not as the name). */
+export const widgetLabel = (id, name) => {
+  const w = byId(id)?.widgets?.find((x) => x.name === name);
+  return String(w?.label || name).trim();
+};
 const CARD_W = 320;
 const unesc = (t) => String(t ?? "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
 
@@ -225,6 +230,35 @@ function stepGroups(s) {
   return refs.map((r) => groupsOf().find((x) => x.title === r.title) || groupsOf()[r.index]).filter(Boolean);
 }
 
+/** Settings an author can mark on a step: whatever is selected on the canvas first (so a node outside the step works
+ * too), then the step's own nodes and the nodes inside its groups. [{group, node, widget, label}] */
+export function stepChoices(s) {
+  const inGroup = (n, g) => {
+    const [x, y, w, h] = g._bounding || g.bounding || [0, 0, 0, 0];
+    return n.pos[0] >= x && n.pos[1] >= y && n.pos[0] < x + w && n.pos[1] < y + h;
+  };
+  const own = new Set((s.nodes || []).map(String));
+  for (const g of stepGroups(s)) for (const n of nodes()) if (inGroup(n, g)) own.add(String(n.id));
+  const picked = Object.keys(app.canvas?.selected_nodes || {});
+  const out = [];
+  const seen = new Set();
+  const add = (id, group) => {
+    const n = byId(id);
+    if (!n) return;
+    for (const w of n.widgets || []) {
+      if (!w.name || w.type === "button" || w.type === "hidden" || w.hidden || w.options?.serialize === false
+        || /^(_|lc_|\$\$)/.test(w.name) || /^[A-Z0-9_]+$/.test(w.name)) continue; // spacers, buttons and internal widgets are nothing to point at
+      const key = `${n.id}|${w.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ group, node: n.id, widget: w.name, label: `${core.nodeLabel(n)} › ${w.label || w.name}` });
+    }
+  };
+  picked.forEach((id) => add(id, "Selected on the canvas"));
+  own.forEach((id) => add(id, "This step"));
+  return out;
+}
+
 function stepTargets(s) {
   return { ns: (s.nodes || []).map(byId).filter(Boolean), gs: stepGroups(s) };
 }
@@ -260,7 +294,7 @@ function drawCard() {
     <div class="vt-head"><span>${esc(tour.title)} · step ${i + 1} of ${tour.steps.length}</span><button class="vt-x" data-t="exit" title="End the tour (Esc)">✕</button></div>
     <div class="vt-title">${esc(s.title)}</div>
     <div class="vt-text">${esc(s.text)}</div>
-    ${s.settings.length ? `<div class="vt-sets">${s.settings.map((x, k) => `<div class="vt-set" data-k="${k}" title="Show this setting"><span class="vt-num">${k + 1}</span><span><b>${esc(core.nodeLabel(byId(x.node)))} › ${esc(x.widget)}</b>${x.why ? `: ${esc(x.why)}` : ""}</span></div>`).join("")}</div>` : ""}
+    ${s.settings.length ? `<div class="vt-sets">${s.settings.map((x, k) => `<div class="vt-set" data-k="${k}" title="Show this setting"><span class="vt-num">${k + 1}</span><span><b>${esc(core.nodeLabel(byId(x.node)))} › ${esc(widgetLabel(x.node, x.widget))}</b>${x.why ? `: ${esc(x.why)}` : ""}</span></div>`).join("")}</div>` : ""}
     <div class="vt-foot">
       <button class="vt-btn" data-t="back" ${i ? "" : "disabled"}>‹ Back</button>
       <span class="vt-dots">${tour.steps.map((_, k) => `<i class="${k === i ? "on" : ""}" data-go="${k}" title="${esc(tour.steps[k].title)}"></i>`).join("")}</span>

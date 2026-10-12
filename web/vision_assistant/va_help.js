@@ -28,6 +28,15 @@ export const HELP_HTML = [
     "\"Where is...\" questions just happen: the nodes glow and the view jumps to them.",
     "The buttons under an answer are quick replies. Click one to ask it.",
   ])),
+  S("🧭 Guided tours", UL([
+    "Ask <b>\"Explain this workflow\"</b>, then hit <b>▶ Guided tour</b>. Back / Next, the arrow keys or a click on any step. Esc stops it.",
+    "Authors: <b>Snapshots > Guided tour > Save to workflow</b> ships the tour inside the file. Saved tours are locked and play on any card.",
+    "<b>To edit:</b> right-click the tour, <b>🔓 Unlock to edit</b>, right-click again, <b>Edit tour…</b>",
+    "<b>+ Add a setting…</b> marks one more setting on a step. <b>×</b> removes a marker. Up to 8 per step.",
+    "💡 To mark a node outside the step, select it on the canvas first. It shows at the top under <b>Selected on the canvas</b>.",
+    "<b>Add a step</b> (at the bottom): pick a group (or your selected nodes) and where it goes, then <b>+ Add step</b>. <b>↑ ↓</b> move a step, <b>×</b> removes it.",
+    "<b>Save</b> locks the tour again. Save the workflow to keep it.",
+  ])),
   S("❓ FAQ", UL([
     "<b>The chat says there's no model.</b> The checkup works without one. For the chat, <b>LC Settings ⚙️ > Vision</b> downloads one.",
     "<b>It says it can't fix something.</b> Packs and models have to be installed or downloaded by you. It tells you what and where.",

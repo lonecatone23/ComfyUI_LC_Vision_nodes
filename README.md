@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **Civitai:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.3.2 · **5 Python nodes** + the **Vision Assistant** sidebar
+- **Version:** 1.3.3 · **5 Python nodes** + the **Vision Assistant** sidebar
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -117,6 +117,13 @@ A sidebar tab (the LC logo on the left) that reads the open workflow for you. Wo
     - "Where is...?" makes the nodes glow and zooms to them.
 - **Guided tour:** "Explain this workflow", then **▶ Guided tour** walks you through it part by part on the canvas, with numbered markers on the settings that matter.
     - Authors: **Snapshots > Guided tour > Save to workflow** ships your tour inside the file. Saved tours are locked (right-click to unlock and edit) and play on any card with no model.
+    - **Editing a tour:** right-click it in **Snapshots > Guided tour**, **🔓 Unlock to edit**, right-click again, **Edit tour…**
+        - Change the tour's name and each step's title and text.
+        - **+ Add a setting…** under a step marks one more setting with the next number on the canvas, with a box for why it matters. **×** removes a marker. Up to 8 per step.
+        - 💡 To mark a node outside the step, select it on the canvas first. Its settings show at the top under **Selected on the canvas**.
+        - **Add a step** (at the bottom): pick what it lights up (any group, or the nodes you selected on the canvas) and where it goes (at the end or after step N), then **+ Add step**.
+        - **↑ ↓** move a step, **×** removes it.
+        - **Save** locks the tour again. Save the workflow to keep it.
 - **Snapshots and Library:** save the settings you changed (models, LoRAs, steps, bypasses) and put them back in one click. Prompts, seeds and input images stay out unless you tick them.
 - **VRAM:** none until you ask the chat something. **Auto** picks the model for your card (8B Q8 on 20 GB+, down to 4B Q4 on 8 GB, CPU chat on smaller cards) and unloads it a minute after the last answer, or the moment you hit Run.
 - **Settings:** **LC Settings ⚙️ > Vision** (works without LC123): Assistant on/off, chat model (Auto / Off / a model), default n_ctx for new Loaders, and the model list with a Download button.
