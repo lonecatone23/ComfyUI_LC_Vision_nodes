@@ -52,9 +52,19 @@ function modelsPanel() {
     if (go) go.onclick = async (e) => {
       e.preventDefault();
       e.stopPropagation();
+      go.disabled = true; // the list only redraws when the download ends
+      go.textContent = "Downloading…";
+      if (pick) pick.disabled = true;
       const r = await api.fetchApi("/lc_vision/download", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label: pick.value }) });
       const j = await r.json();
-      if (j.error) el.querySelector('[data-x="status"]').textContent = j.error;
+      if (j.error) {
+        // refused (one already running, unknown model): say why and leave the last download's message out of it
+        el.querySelector('[data-x="status"]').textContent = j.error;
+        go.disabled = false;
+        go.textContent = "Download";
+        if (pick) pick.disabled = false;
+        return;
+      }
       watch();
     };
     showStatus(st);
