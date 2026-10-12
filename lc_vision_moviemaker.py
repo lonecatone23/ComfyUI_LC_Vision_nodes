@@ -36,7 +36,7 @@ from pathlib import Path
 
 from .lc_vision_caption import _image_input_to_base64_list, _sample_indices
 from .lc_vision_generate import generate_with_recovery, release
-from .lc_vision_loader import LCVisionModel, MODEL_TYPE
+from .lc_vision_loader import LCVisionModel, MODEL_TYPE, strip_thinking
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_content
 
 NODE_ID = "LCVisionMoviemaker"
@@ -390,7 +390,7 @@ class LCVisionMoviemaker:
             )
             if not response or "choices" not in response or not response["choices"]:
                 raise RuntimeError("[LC Vision] Model returned an empty response.")
-            return (response["choices"][0].get("message", {}).get("content", "") or "").strip()
+            return strip_thinking(response["choices"][0].get("message", {}).get("content", "") or "")
 
         raw = _call(system_prompt, effective_content, temperature, seed)
         parsed = _parse_segments(raw, segments)

@@ -49,6 +49,8 @@ _load("lc_vision_prompt_enhancer")
 _load("lc_vision_moviemaker")
 _load("lc_vision_translate")
 _load("lc_vision_danbooru")
+_load("lc_vision_assistant")
+_load("lc_vision_models_routes")
 
 WEB_DIRECTORY = "./web"
 

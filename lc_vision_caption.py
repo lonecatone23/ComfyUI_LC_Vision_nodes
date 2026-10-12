@@ -22,7 +22,7 @@ import numpy as np
 from PIL import Image
 
 from .lc_vision_generate import budget_line, generate_with_recovery, release, trim_to_sentence
-from .lc_vision_loader import LCVisionModel, MODEL_TYPE
+from .lc_vision_loader import LCVisionModel, MODEL_TYPE, strip_thinking
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_content
 
 NODE_ID = "LCVisionCaption"
@@ -197,7 +197,7 @@ class LCVisionCaption:
         if not response or "choices" not in response or not response["choices"]:
             raise RuntimeError("[LC Vision] Model returned an empty response.")
 
-        text = (response["choices"][0].get("message", {}).get("content", "") or "").strip()
+        text = strip_thinking(response["choices"][0].get("message", {}).get("content", "") or "")
         return (trim_to_sentence(text, response),)
 
 

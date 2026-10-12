@@ -18,7 +18,7 @@ import gc
 import re
 import threading
 
-from .lc_vision_loader import _discover_vision_models, gguf_architecture
+from .lc_vision_loader import _discover_vision_models, gguf_architecture, strip_thinking
 
 _LOCK = threading.Lock()
 _PH = "⟦{}⟧"  # ⟦0⟧
@@ -58,8 +58,7 @@ def _numbers(text: str) -> list[str]:
 
 
 def _clean(out: str) -> str:
-    out = re.sub(r"<think>.*?</think>", "", out, flags=re.S).strip()
-    out = re.sub(r"^\s*/no_think\s*", "", out)
+    out = strip_thinking(out)
     m = re.match(r"^```(?:markdown|md)?\s*\n(.*)\n```\s*$", out, re.S)
     return m.group(1) if m else out
 

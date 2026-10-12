@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **Civitai:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.2.10 · **4 Python nodes**
+- **Version:** 1.3.0 · **5 Python nodes** + the **Vision Assistant** sidebar
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -35,6 +35,8 @@ Loads a Qwen-VL GGUF model + its mmproj vision handler once, then hands a persis
 - **Model discovery:** scans every path registered under the `LLM` folder key (`models/LLM/GGUF` by default), pairs each model `.gguf` with an mmproj `.gguf` in the same folder. Only lists pairs that actually have both.
 - **Auto-download on first use:** the dropdown also lists a small curated set of `Download:` entries (Qwen3-VL 4B and 8B, each abliterated, each at `Q8_0` or `f16`) that aren't downloaded yet. Picking one pulls it, and its `mmproj-f16`, straight from HuggingFace into the same folder discovery already scans. `Q8_0` for low-VRAM or new setups, `f16` for well-equipped machines and cloud rigs. An entry drops off the list once it's actually on disk.
     - After the download, the node switches itself to the real file name, so the next run just works.
+    - **Qwen3.5 VL** (4B Q8, 9B Q4_K_M, 9B Q8) is in the list too. Qwen3-VL stays the ★ pick: in my tests Qwen3.5 was slower and guessed more.
+    - Or download from **LC Settings ⚙️ > Vision > Vision models**.
 - **★ Report suggestion** (only with [LC123](https://github.com/lonecatone23/ComfyUI_LC123_nodes) installed and its **System & Model Optimization Report** run once):
     - A ★ in front of the model that suits your card, and a line on the node: **★ Report suggests: Qwen3-VL 8B Q8_0 · n_ctx 32768**.
     - Hover the line for the Quality / Optimal / Fast rows.
@@ -42,6 +44,7 @@ Loads a Qwen-VL GGUF model + its mmproj vision handler once, then hands a persis
 - **`device: auto / cuda / cpu`:** any option runs from the same installed wheel, so CPU inference on an NVIDIA machine doesn't need a separate CPU build. ⚠️ The prebuilt wheel is a CUDA build: on AMD, Intel or any machine without an NVIDIA CUDA runtime it cannot load, see *AMD, Intel and other non-NVIDIA GPUs* below.
 - **`n_ctx`:** **4096 / 8192 / 16384 / 32768**, default **8192**. It is reserved in VRAM up front (about 0.6 / 1.1 / 2.3 / 4.5 GB). 4096 for one image and a short prompt, 8192 for Caption and Prompt Enhancer, 16384–32768 for Moviemaker with several references or video frames. Workflows saved with another number keep it.
 - **`keep_model_loaded`:** on (the default) keeps the model in VRAM between runs. Off: every LC Vision node unloads it once it has answered, so your image model gets the whole card, and the next node or run loads it again (a few seconds). 💡 Turn it off on smaller cards, e.g. with SDXL / Pony / Illustrious.
+- **Less VRAM, same answers:** flash attention and an 8-bit context cache are on automatically (about 0.5 GB less on a 4B, up to 2 GB on an 8B at 16k). Older llama-cpp-python builds just load the plain way.
 - **`n_gpu_layers`:** `-1` offloads everything, `0` forces CPU-only, anything else offloads that many layers.
 - **`n_batch`** also sets `n_ubatch` to match. ⚠️ llama-cpp-python defaults `n_ubatch` to 512 **independently** of `n_batch`. Raising only `n_batch` silently does nothing unless something also raises `n_ubatch`. This node does that for you.
 
@@ -101,6 +104,23 @@ LC Vision is also the translator behind **LC Note 📝** (in LC123). There's no 
 - It uses your best local LC Vision model: an 8B quant first, then a 4B quant. Run an LC Vision Loader once if you don't have one yet.
 - Links, `code`, file names and numbers are locked before translation and checked after. If the model changes one, it retries on its own.
 - 💡 It's a 4B-8B model, so it's good, not native. Have someone proofread the languages that matter most to you. Hand edits to a translation are kept.
+
+---
+
+## Vision Assistant 🔬
+
+A sidebar tab (the LC logo on the left) that reads the open workflow for you. Works on **any** workflow.
+
+- **Checkup:** runs by itself on every workflow: missing packs (one card per pack), missing models with download links, files in a subfolder (one-click fix), the wrong text encoder, model formats your card can't run well, placeholder files, damaged wiring (one-click repair) and your last error in plain words. No model, no VRAM.
+- **Chat:** ask about the workflow in plain words ("What's broken?", "Can you fix it?", "Where do I put my image?"). Select a node first and ask "how does this work?" to have it explained.
+    - 🛑 It never changes anything without asking: every change gets **Yes, do it / No**, with **Undo**.
+    - "Where is...?" makes the nodes glow and zooms to them.
+- **Guided tour:** "Explain this workflow", then **▶ Guided tour** walks you through it part by part on the canvas, with numbered markers on the settings that matter.
+    - Authors: **Snapshots > Guided tour > Save to workflow** ships your tour inside the file. Saved tours are locked (right-click to unlock and edit) and play on any card with no model.
+- **Snapshots and Library:** save the settings you changed (models, LoRAs, steps, bypasses) and put them back in one click. Prompts, seeds and input images stay out unless you tick them.
+- **VRAM:** none until you ask the chat something. **Auto** picks the model for your card (8B Q8 on 20 GB+, down to 4B Q4 on 8 GB, CPU chat on smaller cards) and unloads it a minute after the last answer, or the moment you hit Run.
+- **Settings:** **LC Settings ⚙️ > Vision** (works without LC123): Assistant on/off, chat model (Auto / Off / a model), default n_ctx for new Loaders, and the model list with a Download button.
+- 💡 Hit **?** in the panel for the full help.
 
 ---
 

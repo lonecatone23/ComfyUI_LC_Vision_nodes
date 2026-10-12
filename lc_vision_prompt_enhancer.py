@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 
 from .lc_vision_generate import budget_line, generate_with_recovery, release, trim_to_sentence
-from .lc_vision_loader import LCVisionModel, MODEL_TYPE
+from .lc_vision_loader import LCVisionModel, MODEL_TYPE, strip_thinking
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_text
 
 NODE_ID = "LCVisionPromptEnhancer"
@@ -59,7 +59,7 @@ def _looks_like_leftover_planning(text: str) -> bool:
 
 
 def _strip_think_tags(text: str) -> str:
-    return re.sub(r"(?is)<think>.*?</think>", "", text).strip()
+    return strip_thinking(text)
 
 
 class LCVisionPromptEnhancer:

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .lc_vision_caption import _image_input_to_base64_list
 from .lc_vision_generate import generate_with_recovery, release
-from .lc_vision_loader import LCVisionModel, MODEL_TYPE
+from .lc_vision_loader import LCVisionModel, MODEL_TYPE, strip_thinking
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_content
 
 NODE_ID = "LCVisionDanbooruCaption"
@@ -228,6 +228,8 @@ def _clean(text: str, output: str) -> tuple[list[str], str]:
         tags = [t for t in tags if t != "animal focus" and t != "animal"]  # no animal in it: a model slip
     if not seen & ANIMALS and seen & (COUNT_TAGS - {"solo"} | {"hand focus", "out of frame", "pov hands"}):
         tags = [t for t in tags if t != "no humans"]  # a person and "no humans" can't both be true
+    elif "no humans" in tags and not seen & ANIMALS:
+        tags = [t for t in tags if t != "solo"]  # nobody there: "solo" is a small model's habit
     frame = next((t for t in tags if t in FRAMING), None)
     tags = [t for t in tags if t not in FRAMING or t == frame]  # one framing tag
     tags = [re.sub(r"\)", r"\\)", re.sub(r"\(", r"\\(", t)) for t in tags]  # ComfyUI reads bare parentheses as weights
@@ -335,7 +337,7 @@ class LCVisionDanbooruCaption:
                                               top_p=TOP_P, repeat_penalty=REPEAT, seed=seed)
             if not response or not response.get("choices"):
                 raise RuntimeError("[LC Vision] Model returned an empty response.")
-            return _clean(response["choices"][0].get("message", {}).get("content", ""), kind)
+            return _clean(strip_thinking(response["choices"][0].get("message", {}).get("content", "")), kind)
 
         n = max(16, int(max_tokens))
         if output == "prompt gen mixed":

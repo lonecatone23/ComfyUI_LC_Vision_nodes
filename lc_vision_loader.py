@@ -18,6 +18,7 @@ here.
 from __future__ import annotations
 
 import os
+import re
 import struct
 import urllib.request
 from dataclasses import dataclass, field
@@ -229,7 +230,38 @@ CURATED_DOWNLOADS: dict[str, dict[str, str]] = {
         "model_file": "Qwen3-VL-8B-Instruct-abliterated-v2.f16.gguf",
         "mmproj_file": "Qwen3-VL-8B-Instruct-abliterated-v2.mmproj-f16.gguf",
     },
+    # Qwen3.5: newer, sees images natively (same projector type as Qwen3-VL), 4B and 9B
+    f"{DOWNLOAD_LABEL_PREFIX}Qwen3.5-4B-abliterated (Q8_0, ~5.2GB total)": {
+        "repo_id": "mradermacher/Huihui-Qwen3.5-4B-abliterated-GGUF",
+        "model_file": "Huihui-Qwen3.5-4B-abliterated.Q8_0.gguf",
+        "mmproj_file": "Huihui-Qwen3.5-4B-abliterated.mmproj-f16.gguf",
+    },
+    f"{DOWNLOAD_LABEL_PREFIX}Qwen3.5-9B-abliterated (Q4_K_M, ~6.6GB total)": {
+        "repo_id": "mradermacher/Huihui-Qwen3.5-9B-abliterated-GGUF",
+        "model_file": "Huihui-Qwen3.5-9B-abliterated.Q4_K_M.gguf",
+        "mmproj_file": "Huihui-Qwen3.5-9B-abliterated.mmproj-f16.gguf",
+    },
+    f"{DOWNLOAD_LABEL_PREFIX}Qwen3.5-9B-abliterated (Q8_0, ~10.5GB total)": {
+        "repo_id": "mradermacher/Huihui-Qwen3.5-9B-abliterated-GGUF",
+        "model_file": "Huihui-Qwen3.5-9B-abliterated.Q8_0.gguf",
+        "mmproj_file": "Huihui-Qwen3.5-9B-abliterated.mmproj-f16.gguf",
+    },
 }
+
+
+_THINK_BLOCK = re.compile(r"(?is)<think>.*?</think>")
+
+
+def strip_thinking(text: str) -> str:
+    """The answer without the model's reasoning. Qwen3 writes <think>...</think>; Qwen3.5's template opens the
+    block inside the prompt, so its reply can be 'reasoning </think> answer' with no opening tag. An unclosed
+    <think> means the answer never came (cut off mid-thought): nothing usable is left."""
+    text = _THINK_BLOCK.sub("", text or "")
+    if "</think>" in text:
+        text = text.rsplit("</think>", 1)[1]
+    if re.search(r"(?i)<think>", text):
+        text = re.split(r"(?i)<think>", text, maxsplit=1)[0]
+    return re.sub(r"^\s*/no_think\b", "", text).strip()
 
 
 def _curated_target_dir() -> str:
@@ -395,7 +427,7 @@ def build_llama(params: LCVisionBuildParams) -> tuple[Any, Any]:
             "[LC Vision] This vision projector does not fit this model.\n"
             f"  model:  {os.path.basename(params.model_path)} (size {mw})\n"
             f"  mmproj: {os.path.basename(params.mmproj_path)} (made for size {pw})\n"
-            "A projector only fits its own model size (Qwen3-VL 4B = 2560, 8B = 4096). Put the mmproj from the same "
+            "A projector only fits its own model size (Qwen3-VL 4B = 2560, 8B = 4096, Qwen3.5 9B = 4096). Put the mmproj from the same "
             "download next to the model; keeping each model in its own folder under models/LLM makes the pairing certain."
         )
     chat_handler = handler_cls(
@@ -406,6 +438,18 @@ def build_llama(params: LCVisionBuildParams) -> tuple[Any, Any]:
         verbose=params.verbose,
     )
 
+    # flash attention on and the conversation cache at 8 bits: about 0.5 GB less VRAM for the same captions
+    # (measured on an 8 GB RTX 5060 Laptop, 2026-10-12). Builds without those options get the plain load.
+    import inspect
+
+    extra = {}
+    sig = inspect.signature(Llama.__init__).parameters
+    if "flash_attn_type" in sig:
+        extra["flash_attn_type"] = 1
+    elif "flash_attn" in sig:
+        extra["flash_attn"] = True
+    if "type_k" in sig and "type_v" in sig:
+        extra["type_k"] = extra["type_v"] = 8  # GGML_TYPE_Q8_0
     llm = Llama(
         model_path=params.model_path,
         chat_handler=chat_handler,
@@ -415,6 +459,7 @@ def build_llama(params: LCVisionBuildParams) -> tuple[Any, Any]:
         n_ubatch=params.n_batch,
         swa_full=True,
         verbose=params.verbose,
+        **extra,
     )
     return llm, chat_handler
 
@@ -504,7 +549,8 @@ class LCVisionLoader:
                             "value -- llama-cpp-python defaults n_ubatch to 512 independently "
                             "of n_batch (n_ubatch = min(n_batch, n_ubatch) internally), so "
                             "raising n_batch alone silently does nothing unless n_ubatch tracks "
-                            "it. Raise this if a large or multi-reference input overflows it."
+                            "it. Raise this if a large or multi-reference input overflows it. 1024 saves about "
+                            "0.6 GB of VRAM on 8 GB cards and is fine for a caption of one or two images."
                         ),
                     },
                 ),
