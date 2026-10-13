@@ -8,6 +8,7 @@ import * as check from "./va_checkup.js";
 import * as chat from "./va_chat.js";
 import { HELP_HTML, HELP_CSS } from "./va_help.js";
 import * as tour from "./va_tour.js";
+import * as movie from "./va_movie.js";
 
 let usedChat = false; // unload the chat model when a run starts, so it never takes VRAM from the render
 
@@ -138,6 +139,8 @@ function render() {
     ["library", "Library", "Your snapshots for any workflow"],
     ["chat", "Chat", "Ask about this workflow in plain words"],
   ];
+  if (movie.relevant()) tabs.splice(2, 0, ["movie", "Movie", "This workflow's H3 long-video project: segments, checks, redo"]);
+  else if (ui.tab === "movie") ui.tab = "chat";
   el.innerHTML = `<div class="va">
     <div class="va-head"><img src="${LOGO_PNG}" alt=""><b>Vision Assistant</b></div>
     <div class="va-tabs">${tabs.map(([id, label, tip]) => `<button class="va-tab${ui.tab === id ? " on" : ""}" data-tab="${id}" title="${tip}">${label}${id === "chat" && problems() ? '<span class="va-dot"></span>' : ""}</button>`).join("")}<button class="va-help${ui.help ? " on" : ""}" data-help title="Help: how to use it, FAQ, tips">?</button></div>
@@ -178,6 +181,7 @@ function render() {
   if (ui.view === "place") return renderPlace(body);
   if (ui.tab === "snapshots") return renderSnapshots(body);
   if (ui.tab === "library") return renderLibrary(body);
+  if (ui.tab === "movie") return movie.render(body, { toast, rerender: () => ui.el?.isConnected && render(), askChat });
   return renderChat(body);
 }
 
@@ -698,6 +702,17 @@ function markIcon() {
   btn?.classList.toggle("va-alert", problems() > 0);
 }
 
+/** Movie tab -> Chat, with the project's numbers already typed in as the question. */
+function askChat(summary) {
+  ui.tab = "chat";
+  ui.view = "list";
+  ui.draft = `${summary}
+
+What should I fix first, and how?`;
+  ui.focusInput = true;
+  render();
+}
+
 function renderChat(body) {
   if (!ui.cards) {
     body.innerHTML = `<div class="va-hint">Checking this workflow…</div>`;
@@ -1099,6 +1114,7 @@ function checkSwitch() {
   if (k === ui.key) return false;
   ui.key = k;
   tour.stop();
+  movie.reset();
   ui.view = "list";
   ui.menu = null;
   baseline();
@@ -1181,6 +1197,9 @@ app.registerExtension({
       if (!enabled || checkSwitch()) return;
       if (++tick % 3 === 0) refreshCards().catch(() => {}); // keeps the red dot current while the panel is closed
     }, 1500);
+    movie.watch(() => {
+      if (ui.tab === "movie" && ui.view === "list" && ui.el?.isConnected) render();
+    });
     api.addEventListener("execution_start", () => {
       if (usedChat) chat.unload(); // the chat model never takes VRAM from a render
     });

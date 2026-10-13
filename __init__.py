@@ -47,10 +47,13 @@ _load("lc_vision_loader")
 _load("lc_vision_caption")
 _load("lc_vision_prompt_enhancer")
 _load("lc_vision_moviemaker")
+_load("lc_vision_director")
+_load("lc_vision_redirect")
 _load("lc_vision_translate")
 _load("lc_vision_danbooru")
 _load("lc_vision_assistant")
 _load("lc_vision_models_routes")
+_load("lc_vision_movie_routes")
 
 WEB_DIRECTORY = "./web"
 
