@@ -9,6 +9,7 @@ import * as chat from "./va_chat.js";
 import { HELP_HTML, HELP_CSS } from "./va_help.js";
 import * as tour from "./va_tour.js";
 import * as movie from "./va_movie.js";
+import * as batch from "./va_batch.js";
 
 let usedChat = false; // unload the chat model when a run starts, so it never takes VRAM from the render
 
@@ -192,6 +193,7 @@ function renderSnapshots(body) {
   const u = undo.get(k);
   body.innerHTML = `
     <div class="va-sub">${esc(wfName())}</div>
+    <div class="va-hint" data-live="batch" title="Batch snapshot: what the next Run makes. Run stops to ask when it looks like a mistake (LC Settings > Vision turns it off).">Next Run: ${esc(batch.summaryLine())}</div>
     <div class="va-hint" data-live="count">${n ? `${n} change${n === 1 ? "" : "s"} since ${esc(baseline().label)}` : `No changes since ${esc(baseline().label)}`}</div>
     <button class="va-btn wide pri" data-act="save" title="Pick which of your changes go into a new snapshot">Save snapshot</button>
     ${u ? `<button class="va-link" data-act="undo" title="Put back the settings from before you applied it">Undo "${esc(u.name)}"</button>` : ""}
@@ -1139,6 +1141,8 @@ function mount(el) {
   ui.timer = setInterval(() => {
     if (!ui.el?.isConnected) return;
     if (ui.view === "list" && ui.tab === "snapshots") {
+      const lb = ui.el.querySelector('[data-live="batch"]');
+      if (lb) lb.textContent = `Next Run: ${batch.summaryLine()}`;
       const live = ui.el.querySelector('[data-live="count"]');
       if (live) {
         const n = changes().length;
@@ -1197,6 +1201,13 @@ app.registerExtension({
       if (!enabled || checkSwitch()) return;
       if (++tick % 3 === 0) refreshCards().catch(() => {}); // keeps the red dot current while the panel is closed
     }, 1500);
+    batch.guard(() => {
+      try {
+        return changes().filter((c) => c.kind === "widget" && c.changed);
+      } catch (_) {
+        return [];
+      }
+    });
     movie.watch(() => {
       if (ui.tab === "movie" && ui.view === "list" && ui.el?.isConnected) render();
     });

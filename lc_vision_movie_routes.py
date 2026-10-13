@@ -19,7 +19,7 @@ import subprocess
 
 import folder_paths
 
-FACE_SAME, FACE_CLOSE = 0.45, 0.36
+FACE_SAME, FACE_CLOSE = 0.55, 0.40
 
 
 def _root() -> str:
@@ -79,6 +79,7 @@ def status(project: str) -> dict:
             prev_tail = _seg(folder, i - 1, "_tail.mp4")
             made_from = meta.get("from_tail_mtime")
             row.update({
+                "mode": meta.get("mode", row["mode"]), "auto_cut": meta.get("auto_cut", ""), "reanchor": meta.get("reanchor", ""),
                 "seed": meta.get("seed"), "face": meta.get("face"), "look": meta.get("look"), "memory": meta.get("memory"),
                 "frames": meta.get("part_frames"), "saved": meta.get("saved", ""), "modified": saved,
                 "stale": bool(row["mode"] == "CONTINUE" and made_from and os.path.exists(prev_tail)

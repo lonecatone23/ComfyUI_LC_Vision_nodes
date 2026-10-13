@@ -101,10 +101,11 @@ Plans a video as N independently-generated segments in **one** LLM call, not N c
 Moviemaker's big brother for long videos: it plans a chain of short segments that pick up from each other, made one per Run by the LC H3 Segment nodes (LC AV, coming next).
 
 - **One style block for every segment.** Who's in it, where, the light and the camera are written once and pasted word for word into every segment, so nothing gets reworded halfway through.
-- **CUT or CONTINUE.** Every segment is tagged. A CONTINUE segment starts from the last 1.6 s of the one before (`overlap_seconds`), so its new action is planned on the time that's left.
+- **One continuous take.** Every segment continues from the last 1.6 s of the one before (`overlap_seconds`), so its new action is planned on the time that's left. A **CUT** only happens where your story writes one ("cut to..."). Walking into a new place happens inside the take.
 - **Ends settled.** Each segment ends on a calm pose with the face visible, so the next one has a clean handoff. A line of dialogue never gets split across two segments, and the story's own lines are checked for.
 - **Plans once.** The plan saves to `output/LC_H3/<project>/plan.json` and reloads in about 2 s without loading the model, until you change the story or the timing, or turn on **replan**.
-- 💡 **`segment_seconds`** 5 is a good default. Shorter segments = less VRAM.
+- **Staging and props.** The camera leads the main person so the face stays visible, and anything that comes back (the cup, the bag) is described once and repeated word for word, so it doesn't change between segments.
+- 💡 **`segment_seconds`** 5 is a good default. Shorter segments = less VRAM. The first segment is 5 s and each CONTINUE adds about 3.5 s, so about 16 segments make a minute.
 
 ---
 
@@ -148,6 +149,7 @@ A sidebar tab (the LC logo on the left) that reads the open workflow for you. Wo
         - **↑ ↓** move a step, **×** removes it.
         - **Save** locks the tour again. Save the workflow to keep it.
 - **Movie:** shows up when a workflow has the LC H3 Segment node. Every segment of the project with a thumbnail and a player, plus face, join and color checks in plain words with a fix button (**Redo segment N**, **Make all remaining**). **Ask about this movie** opens Chat with the numbers already typed in.
+- **Batch snapshot:** a look at the run before it starts. A single image always goes straight through. Run only stops to ask when it looks like a mistake: more than 16 images, several runs on a fixed seed, a big upscale on many images. It says which of those settings you changed since opening the workflow. The Snapshots tab shows what the next Run makes. Off in **LC Settings ⚙️ > Vision**.
 - **Snapshots and Library:** save the settings you changed (models, LoRAs, steps, bypasses) and put them back in one click. Prompts, seeds and input images stay out unless you tick them.
 - **VRAM:** none until you ask the chat something. **Auto** picks the model for your card (8B Q8 on 20 GB+, down to 4B Q4 on 8 GB, CPU chat on smaller cards) and unloads it a minute after the last answer, or the moment you hit Run.
 - **Settings:** **LC Settings ⚙️ > Vision** (works without LC123): Assistant on/off, chat model (Auto / Off / a model), default n_ctx for new Loaders, and the model list with a Download button.

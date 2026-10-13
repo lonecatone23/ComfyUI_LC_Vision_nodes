@@ -46,6 +46,7 @@ WORDS_PER_SECOND = 2.5
 
 _STYLE_RE = re.compile(r"###STYLE###\s*(.*?)(?=###SEGMENT_\d+###|\Z)", re.DOTALL)
 _SEG_RE = re.compile(r"###SEGMENT_(\d+)###[ \t]*\[?(CUT|CONTINUE)?\]?[ \t]*\n?(.*?)(?=###SEGMENT_\d+###|\Z)", re.DOTALL | re.IGNORECASE)
+_CUT_RE = re.compile(r"\bcuts?\s+(?:back\s+)?to\b|\bscene\s+\d+\b|\blater\s+that\b|\bthe\s+next\s+(?:day|morning)\b", re.I)
 _QUOTE_RE = re.compile(r"[\"“](.+?)[\"”]", re.DOTALL)
 
 
@@ -66,20 +67,30 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"generation by a video renderer that remembers nothing between calls. The segments are "
         f"joined afterwards, so you plan the whole story at once and write each segment as its own "
         f"prompt.\n\n"
-        f"First write a STYLE block, once. It describes everything that stays the same: every person "
-        f"on screen (face, hair, build, clothing, distinguishing details), the location, the lighting "
-        f"and time of day, the camera style and the visual style. It is pasted word for word in front "
-        f"of every segment, so the segments themselves must NOT describe anyone's appearance or the "
-        f"setting again, only what happens.\n\n"
-        f"Then write every segment, tagged CUT or CONTINUE:\n"
+        f"First write a STYLE block, once. It describes what never changes: every person on screen "
+        f"(face, hair, build, clothing, distinguishing details), the camera style and the visual style. "
+        f"It does NOT describe the place or the light, because the story can move. It is pasted word "
+        f"for word in front of every segment, so the segments themselves must NOT describe anyone's "
+        f"appearance again.\n\n"
+        f"Every segment starts with one line \"Place: ...\" saying where it happens and the light there "
+        f"(for example \"Place: a snowy city street at night, neon signs reflecting on wet pavement.\"). "
+        f"Keep that line word for word the same while the story stays in one place, and change it the "
+        f"moment the story moves somewhere else (inside a cafe, a different street). Then the action.\n\n"
+        f"The video is ONE continuous take. Write every segment, tagged CUT or CONTINUE:\n"
         f"- CONTINUE: the camera keeps rolling. The renderer is shown the last {overlap_s:.2f} seconds "
         f"of the previous segment, so this segment picks up exactly where the previous one ended: "
         f"same pose, same position, same camera. Plan {new_s:.2f} seconds of NEW action on a local "
         f"clock from 0.00 to {new_s:.2f} seconds.\n"
-        f"- CUT: a new camera angle or a new moment, same people and place unless the story moves "
-        f"them. Plan {seg_s:.2f} seconds of action on a local clock from 0.00 to {seg_s:.2f} seconds.\n"
-        f"- Segment 1 is always CUT. Prefer CONTINUE; use CUT only for a real change of angle, place "
-        f"or time.\n\n"
+        f"- CUT: only where the story itself says so (\"cut to ...\"). Plan {seg_s:.2f} seconds of action "
+        f"on a local clock from 0.00 to {seg_s:.2f} seconds.\n"
+        f"- Segment 1 is CUT. Every other segment is CONTINUE unless the story writes a cut at that point. "
+        f"Moving to a new place (walking into a cafe) happens inside the take, not with a cut.\n\n"
+        f"Staging: the camera leads the main person, so their face stays visible to the camera most of "
+        f"the time. Avoid long stretches with their back to the camera (when they walk through a door, "
+        f"the camera goes ahead of them or turns with them).\n\n"
+        f"Continuity: list in the STYLE block every object that comes back (what they carry, what they "
+        f"drink from, what they wear over their clothes), described exactly once, and use those same "
+        f"words in every segment that shows it, so nothing changes shape or color between segments.\n\n"
         f"Rules for every segment:\n"
         f"0) FOLLOW THE STORY'S ORDER: events happen in the order the story gives them, and a quoted "
         f"line belongs at the exact moment the story puts it. If the story runs out before the last "
@@ -89,8 +100,9 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"2) ACTION NEVER REPEATS: always move forward from exactly where the previous segment ended. "
         f"Track where each person is; someone who left the frame stays out or visibly re-enters. "
         f"Something that already happened (an arrival, a hug) never happens again from scratch.\n"
-        f"3) END SETTLED: in the last second of every segment the main person holds a clear, stable "
-        f"pose with the face visible and the camera steady. No new action starts in that last second.\n"
+        f"3) END FLOWING: in the last second the movement eases but keeps going (a slow step, a turn of "
+        f"the head); the main person stays in frame, face to the camera where it fits. No new action "
+        f"starts in that last second, and nobody freezes and stares at the camera.\n"
         f"4) DIALOGUE: at most one quoted line per segment, said once, verbatim, in quotes, inside an "
         f"explicit short time window that finishes before the last second. A sentence is never split "
         f"across two segments. Keep a line to about {WORDS_PER_SECOND:g} words per second of its "
@@ -221,7 +233,7 @@ class LCVisionDirector:
                 "project": ("STRING", {"default": "parka_test", "tooltip": "Project name. The plan and every segment are saved in output/LC_H3/<project>/."}),
                 "story": ("STRING", {"multiline": True, "default": "", "tooltip": "The whole story, start to finish. Say who is in it, where, and what happens."}),
                 "preset": (preset_names, {"default": default_preset, "tooltip": "Which MiniMax H3 mode the segments are written for. Add more in lc_vision_moviemaker_presets.json (shared with Moviemaker)."}),
-                "segments": ("INT", {"default": 3, "min": 1, "max": MAX_SEGMENTS, "tooltip": "How many segments. 12 segments of 5 s is about a minute (the overlap is shared)."}),
+                "segments": ("INT", {"default": 3, "min": 1, "max": MAX_SEGMENTS, "tooltip": "How many segments. With 5 s segments the first one is 5 s and each CONTINUE adds about 3.5 s (the overlap is shared): 12 segments is about 44 s, about 16 make a minute."}),
                 "segment_seconds": ("FLOAT", {"default": 5.0, "min": 2.0, "max": 20.0, "step": 0.5, "tooltip": "Length of each generated segment. Snapped to H3's frame grid (5.0 = 124 frames). Shorter = less VRAM."}),
                 "overlap_seconds": ("FLOAT", {"default": 1.6, "min": 0.2, "max": 6.0, "step": 0.1, "tooltip": "How much of the previous segment a CONTINUE segment starts from. 1.6 s (39 frames) is a good default."}),
                 "replan": ("BOOLEAN", {"default": False, "tooltip": "On: always write a new plan. Off: reuse this project's saved plan as long as the story and timing are unchanged."}),
@@ -351,6 +363,26 @@ class LCVisionDirector:
                     parsed, issues = merged, merged_issues
 
         style, raw_shots = parsed
+        # each segment is rendered on its own, so "Place: same cafe as before" means nothing to H3: repeat the
+        # last full Place line instead
+        last_place = ""
+        for s in raw_shots:
+            head, sep, rest = s["action"].partition("\n")
+            if head.strip().lower().startswith("place:"):
+                body = head.strip()[6:].strip()
+                if last_place and re.match(r"(the\s+)?same\b", body, re.I):
+                    s["action"] = last_place + sep + rest
+                else:
+                    last_place = head.strip()
+        # one continuous take: a CUT only where the story writes one ("cut to", "later that night", "scene 2")
+        allowed = len(_CUT_RE.findall(story))
+        for k, s in enumerate(raw_shots[1:], start=2):
+            if s["mode"] == "CUT":
+                if allowed > 0:
+                    allowed -= 1
+                else:
+                    s["mode"] = "CONTINUE"
+                    issues.append(f"segment {k} was planned as a CUT the story doesn't ask for; it continues instead")
         shots, end = [], 0.0
         for i, s in enumerate(raw_shots):
             # a CONTINUE segment's first overlap_s is the held tail: its local clock starts after it,

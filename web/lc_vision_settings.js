@@ -112,6 +112,15 @@ app.registerExtension({
       onChange: (v) => window.LCVisionAssistant?.setEnabled?.(v !== false),
     },
     {
+      id: "LCVision.BatchSnapshot.Enabled",
+      category: [CAT, "Vision", "Batch snapshot"],
+      name: "Batch snapshot (check before Run)",
+      type: "boolean",
+      defaultValue: true,
+      sortOrder: 45,
+      tooltip: "Before a run starts, checks the run count, batch sizes, seed modes, output size and upscale. Run only stops to ask when it looks like a mistake: more than 16 images, several runs on a fixed seed, a big upscale on many images.",
+    },
+    {
       id: "LCVision.Chat.Model",
       category: [CAT, "Vision", "Chat model"],
       name: "Vision Assistant chat model",

@@ -56,7 +56,7 @@ function problems(d) {
   for (const s of segs) {
     if (!s.done) continue;
     if (s.stale) out.push({ lvl: 3, title: `Segment ${s.index} no longer lines up`, text: `It continued from an older version of segment ${s.index - 1}, which was redone since. Redo it so the join matches.`, act: ["redo", s.index] });
-    if (s.index > 1 && s.face && s.face.match < d.face_close) out.push({ lvl: 3, title: `Segment ${s.index}: face drifted`, text: `Face match ${s.face.match.toFixed(2)}: it reads as someone else. A new seed usually fixes it.`, act: ["redo", s.index] });
+    if (s.index > 1 && s.face?.match != null && s.face.match < d.face_close) out.push({ lvl: 3, title: `Segment ${s.index}: face drifted`, text: `Face match ${s.face.match.toFixed(2)}: it reads as someone else. A new seed usually fixes it.`, act: ["redo", s.index] });
   }
   for (const j of d.report?.joins || []) {
     if (j.flag) out.push({ lvl: 1, title: `Jumpy join into segment ${j.segment}`, text: `At ${j.time_s.toFixed(2)} s the picture jumps ${j.jump.toFixed(2)}x more than normal motion. Redo segment ${j.segment}.`, act: ["redo", j.segment] });
@@ -143,9 +143,10 @@ export function render(body, { toast, rerender, askChat }) {
     <div class="va-list">${segs.map((s) => `<div class="va-row" style="align-items:flex-start">
       ${s.done ? `<img src="/api/lc_vision/movie/thumb?project=${encodeURIComponent(d.project)}&i=${s.index}&t=${Math.round(s.modified || 0)}" style="width:96px;border-radius:6px;cursor:pointer" data-play="${s.index}" title="Play segment ${s.index}">`
         : `<div style="width:96px;height:54px;border-radius:6px;border:1px dashed var(--border-color);display:flex;align-items:center;justify-content:center" class="va-sub">not made</div>`}
-      <div class="va-grow"><div><b>${s.index}</b> <span class="va-tag">${s.mode.toLowerCase()}</span>
+      <div class="va-grow"><div><b>${s.index}</b> <span class="va-tag" title="${s.auto_cut ? esc("Planned as a continue, made as a cut: " + s.auto_cut) : ""}">${s.mode.toLowerCase()}${s.auto_cut ? " (auto)" : ""}</span>
         ${s.index === 1 && s.face ? `<span class="va-fit ok" title="Segment 1 is the face every other segment is compared to">face reference</span>` : ""}
-        ${s.index > 1 && s.face ? `<span class="va-fit ${s.face.match >= d.face_same ? "ok" : s.face.match >= d.face_close ? "part" : "no"}" title="Face match to segment 1 (0 to 1)">face ${s.face.match.toFixed(2)} ${faceWord(s.face.match, d)}</span>` : ""}
+        ${s.index > 1 && s.face?.match == null && s.face ? `<span class="va-fit no" title="Seen from behind or too small to compare">no clear face</span>` : ""}
+        ${s.index > 1 && s.face?.match != null ? `<span class="va-fit ${s.face.match >= d.face_same ? "ok" : s.face.match >= d.face_close ? "part" : "no"}" title="Face match to segment 1 (0 to 1)">face ${s.face.match.toFixed(2)} ${faceWord(s.face.match, d)}</span>` : ""}
         ${s.stale ? `<span class="va-fit no">out of line</span>` : ""}</div>
         <div class="va-sub" style="white-space:normal">${esc(s.action.slice(0, 140))}${s.action.length > 140 ? "…" : ""}</div>
         ${st.playing === String(s.index) ? `<video src="${view(segFile(s.index), Math.round(s.modified || 0))}" controls autoplay style="width:100%;border-radius:6px;margin-top:4px;background:#000"></video>` : ""}</div>
@@ -182,7 +183,7 @@ export function render(body, { toast, rerender, askChat }) {
 function summary(d) {
   const lines = [`H3 long-video project "${d.project}": ${(d.segments || []).length} segments of ${d.segment_s?.toFixed?.(2)} s, ${d.overlap_s?.toFixed?.(2)} s overlap.`];
   for (const s of d.segments || []) {
-    lines.push(`Segment ${s.index} (${s.mode}): ${s.done ? `made, seed ${s.seed}${s.face ? `, face match ${s.face.match}` : ""}${s.stale ? ", out of line with the segment before" : ""}` : "not made"}. Plan: ${s.action.slice(0, 160)}`);
+    lines.push(`Segment ${s.index} (${s.mode}): ${s.done ? `made, seed ${s.seed}${s.face?.match != null ? `, face match ${s.face.match}` : s.face ? ", no clear face" : ""}${s.stale ? ", out of line with the segment before" : ""}` : "not made"}. Plan: ${s.action.slice(0, 160)}`);
   }
   for (const j of d.report?.joins || []) if (j.mode === "CONTINUE") lines.push(`Join into segment ${j.segment}: ${j.jump}x normal motion${j.flag ? " (flagged)" : ""}.`);
   for (const r of d.report?.drift || []) lines.push(`Color shift in segment ${r.segment}: ${r.delta_e}${r.flag ? " (flagged)" : ""}.`);
