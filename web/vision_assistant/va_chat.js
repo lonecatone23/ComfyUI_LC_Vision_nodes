@@ -154,9 +154,16 @@ export async function context(question, cards) {
       + ((c.actions || []).filter((a) => a.href).map((a) => ` [link: ${a.href}]`).join(""));
   }) : ["- nothing found"])];
   // most important first: a small chat model gets a short window, and the end of this is what gets cut
+  let symptoms = [];
+  try {
+    symptoms = await check.symptomReport(question);
+  } catch (e) {
+    console.warn("[Vision Assistant] symptom check failed", e);
+  }
   return [
     `MACHINE: ${sys.gpu}, ${Math.round(sys.vram)} GB VRAM, ComfyUI ${sys.comfy || "?"}`,
     `WORKFLOW "${(wf?.filename || "untitled").replace(/\.json$/i, "")}": ${list.length} nodes`,
+    ...symptoms,
     ...checkup,
     ...(sel.length ? [`SELECTED (what "this", "this node" or "these" means): ${sel.length} node${sel.length === 1 ? "" : "s"}`, ...sel.map(explainNode)] : ["SELECTED: nothing"]),
     ...(authors.length ? [`AUTHOR LINKS FOUND IN THE NOTES (support and social pages): ${authors.join(" | ")}`] : []),

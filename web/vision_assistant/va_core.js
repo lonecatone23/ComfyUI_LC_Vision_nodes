@@ -201,7 +201,7 @@ function touch(graph) {
 export function workflowSnaps(graph = app.graph) {
   graph.extra = graph.extra || {};
   graph.extra.vision_assistant = graph.extra.vision_assistant || { snapshots: [] };
-  return graph.extra.vision_assistant.snapshots;
+  return graph.extra.vision_assistant.snapshots || []; // a workflow can carry a tour and no snapshots
 }
 
 export function saveWorkflowSnaps(list, graph = app.graph) {

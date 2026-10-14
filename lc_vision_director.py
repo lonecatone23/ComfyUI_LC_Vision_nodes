@@ -72,10 +72,12 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"It does NOT describe the place or the light, because the story can move. It is pasted word "
         f"for word in front of every segment, so the segments themselves must NOT describe anyone's "
         f"appearance again.\n\n"
-        f"Every segment starts with one line \"Place: ...\" saying where it happens and the light there "
-        f"(for example \"Place: a snowy city street at night, neon signs reflecting on wet pavement.\"). "
-        f"Keep that line word for word the same while the story stays in one place, and change it the "
-        f"moment the story moves somewhere else (inside a cafe, a different street). Then the action.\n\n"
+        f"Every segment starts with one line \"Place: ...\" saying where it happens, the time of day and the "
+        f"light there (for example \"Place: a snowy city street at night, neon signs reflecting on wet "
+        f"pavement.\" or \"Place: inside a small cafe at night, warm pendant lights, dark snowy street "
+        f"outside the windows.\"). The time of day carries over when the place changes (going indoors at "
+        f"night stays night, and windows show it). Keep that line word for word the same while the story "
+        f"stays in one place, and change it the moment the story moves somewhere else. Then the action.\n\n"
         f"The video is ONE continuous take. Write every segment, tagged CUT or CONTINUE:\n"
         f"- CONTINUE: the camera keeps rolling. The renderer is shown the last {overlap_s:.2f} seconds "
         f"of the previous segment, so this segment picks up exactly where the previous one ended: "
@@ -86,11 +88,29 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"- Segment 1 is CUT. Every other segment is CONTINUE unless the story writes a cut at that point. "
         f"Moving to a new place (walking into a cafe) happens inside the take, not with a cut.\n\n"
         f"Staging: the camera leads the main person, so their face stays visible to the camera most of "
-        f"the time. Avoid long stretches with their back to the camera (when they walk through a door, "
-        f"the camera goes ahead of them or turns with them).\n\n"
-        f"Continuity: list in the STYLE block every object that comes back (what they carry, what they "
-        f"drink from, what they wear over their clothes), described exactly once, and use those same "
-        f"words in every segment that shows it, so nothing changes shape or color between segments.\n\n"
+        f"the time. Never write them walking away from the camera. Going through a door: the camera is "
+        f"already inside, facing the door, and they walk in toward it (or the camera turns with them as "
+        f"they enter), so their face is seen as they come through. Another person (a barista, a friend, a "
+        f"waiter) stays in their own spot (behind the counter, at their table) and never walks over to the main "
+        f"person. Like the door: the camera is already on the far side (behind the counter, next to the "
+        f"barista), facing the way the main person comes, so they walk up toward the camera and stay facing it "
+        f"while they talk or are handed something (for example \"she walks up to the counter toward the camera "
+        f"and smiles at the barista beside it, who hands her the mug\"). The camera never moves to a new angle "
+        f"for this. Only the object on the Holding line changes hands, nothing else (no trays, no plates).\n\n"
+        f"Objects: the STYLE block never mentions objects people pick up or are handed, because it goes into "
+        f"every segment. Instead, the second line of every segment is \"Holding: ...\": \"Holding: nothing\" "
+        f"until the story gives the main person something, then the object with its material, color and "
+        f"shape (for example \"Holding: a white ceramic mug of hot chocolate with a saucer\"), word for word "
+        f"the same in every later segment, until they put it down.\n\n"
+        f"Sound: the third line of every segment is \"Sound: ...\", the soft background ambience of that place "
+        f"in a few words (for example \"Sound: a quiet snowy street at night, soft distant traffic.\" or "
+        f"\"Sound: the soft hum of a quiet cafe.\"). Keep it low-key: no list of separate noises (footsteps, "
+        f"clinks, taps), because named sounds take over the quiet moments; name one only when it is the point "
+        f"of the moment. Never music, voices, chatter, crowds or singing. End it "
+        f"with \"No music. The only voice is her own quoted line.\" in a segment with a quoted line, or \"No music. Nobody "
+        f"speaks.\" in every other segment. Keep it word for word the same while the place stays the same. "
+        f"The renderer makes up talking whenever a mouth moves, so outside a quoted line nobody's mouth "
+        f"moves: closed-mouth smiles only, no sighs, no lip movements, no muttering, no sipping.\n\n"
         f"Rules for every segment:\n"
         f"0) FOLLOW THE STORY'S ORDER: events happen in the order the story gives them, and a quoted "
         f"line belongs at the exact moment the story puts it. If the story runs out before the last "
@@ -125,6 +145,45 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"... through ###SEGMENT_{segments}###. No preamble, no lists, no reasoning."
     )
     return text
+
+
+def _beat_map(story: str, segments: int) -> str:
+    """The story's sentences spread evenly over the segments ("Segments 3-4: ..."). Left alone, a model rushes the
+    first half of a story into two segments and then stalls for ten on the last event."""
+    # split on sentence ends that are not inside quotes
+    sentences, buf, in_q = [], "", False
+    for ch in story.strip():
+        buf += ch
+        if ch in "\"“”":
+            in_q = not in_q
+            if not in_q and len(buf) > 1 and buf[-2] in ".!?":  # a sentence that ends inside its closing quote
+                sentences.append(buf.strip())
+                buf = ""
+            continue
+        if ch in ".!?" and not in_q:
+            if buf.strip():
+                sentences.append(buf.strip())
+            buf = ""
+    if buf.strip():
+        sentences.append(buf.strip())
+    sentences = [x for x in sentences if len(x) > 3]
+    if len(sentences) < 2 or segments < 2:
+        return ""
+    lines = []
+    if len(sentences) <= segments:
+        base, extra = divmod(segments, len(sentences))
+        start = 1
+        for k, sent in enumerate(sentences):
+            span = base + (1 if k < extra else 0)
+            end = start + span - 1
+            lines.append(f"Segment {start}: {sent}" if span == 1 else f"Segments {start}-{end}: {sent}")
+            start = end + 1
+    else:
+        per = len(sentences) / segments
+        for k in range(segments):
+            chunk = sentences[int(round(k * per)):int(round((k + 1) * per))]
+            lines.append(f"Segment {k + 1}: {' '.join(chunk)}")
+    return "\n".join(lines)
 
 
 def _parse(text: str, segments: int):
@@ -322,6 +381,11 @@ class LCVisionDirector:
         if story_lines:
             system_prompt += ("\n\nThe story has these spoken lines. Each one MUST appear exactly once, verbatim and in "
                               "quotes, in the segment where the story puts it: " + " | ".join(f'"{ln}"' for ln in story_lines))
+        beats = _beat_map(story, segments)
+        if beats:
+            system_prompt += ("\n\nPACING: spread the story evenly over the segments, following this map. Each event "
+                              "gets the segments listed for it: slow it down with small steps, glances and reactions "
+                              "to fill them, and never jump ahead to a later event early.\n" + beats)
         content = [{"type": "text", "text": story.strip() or "Plan a short scene."}]
         for idx, ref in enumerate(references, start=1):
             if ref is None:
@@ -365,15 +429,20 @@ class LCVisionDirector:
         style, raw_shots = parsed
         # each segment is rendered on its own, so "Place: same cafe as before" means nothing to H3: repeat the
         # last full Place line instead
-        last_place = ""
+        # the same goes for "Holding: still the same mug" and "Sound: same as before"
+        last = {}
         for s in raw_shots:
-            head, sep, rest = s["action"].partition("\n")
-            if head.strip().lower().startswith("place:"):
-                body = head.strip()[6:].strip()
-                if last_place and re.match(r"(the\s+)?same\b", body, re.I):
-                    s["action"] = last_place + sep + rest
+            lines = s["action"].split("\n")
+            for k, ln in enumerate(lines[:3]):
+                m = re.match(r"\s*(place|holding|sound)\s*:\s*(.*)", ln, re.I)
+                if not m:
+                    continue
+                label = m.group(1).lower()
+                if label in last and re.match(r"(the\s+)?(same|still)\b", m.group(2), re.I):
+                    lines[k] = last[label]
                 else:
-                    last_place = head.strip()
+                    last[label] = ln.strip()
+            s["action"] = "\n".join(lines)
         # one continuous take: a CUT only where the story writes one ("cut to", "later that night", "scene 2")
         allowed = len(_CUT_RE.findall(story))
         for k, s in enumerate(raw_shots[1:], start=2):

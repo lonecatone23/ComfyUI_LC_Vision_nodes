@@ -46,8 +46,12 @@ REWRITE = (
     "impossible from it (sitting down while walking outside, opening a door already open, entering a place "
     "the person is already in), must be replaced by a beat that gets from the end state toward the plan's "
     "later beats. Beats that already fit stay word for word.\n"
-    "Keep every timestamp exactly, keep the order of events, keep every quoted line word for word, keep a first "
-    "line that starts with \"Place:\" exactly as it is, and otherwise describe actions only (never appearance).\n"
+    "If the END STATE is somewhere other than the Place line describes (a different spot in the room, a wall "
+    "instead of the window), the first beat moves the person or the camera there smoothly (a slow pan, a few "
+    "steps), so the shot never jumps. If the END STATE has the main person facing away from the camera, the first "
+    "beat turns them back toward the camera (or the camera moves around to their face).\n"
+    "Keep every timestamp exactly, keep the order of events, keep every quoted line word for word, keep the lines "
+    "that start with \"Place:\", \"Holding:\" or \"Sound:\" exactly as they are, and otherwise describe actions only (never appearance).\n"
     "Example. END STATE: she stands inside the cafe by the counter. PLANNED: At 1.62 seconds, she pushes open "
     "the cafe door and steps inside. At 3.00 seconds, she orders a coffee. REWRITE: At 1.62 seconds, she turns "
     "to the counter and steps up to it. At 3.00 seconds, she orders a coffee.\n"
@@ -111,9 +115,10 @@ def _problems(original: str, rewritten: str, seg_s: float) -> list:
         out.append("runs past the segment")
     if len(rewritten) > len(original) * 1.6 + 80:
         out.append("grew too long")
-    place = next((ln.strip() for ln in original.splitlines() if ln.strip().lower().startswith("place:")), "")
-    if place and place not in rewritten:
-        out.append("changed the Place line")
+    for label in ("place:", "holding:", "sound:"):
+        keep = next((ln.strip() for ln in original.splitlines() if ln.strip().lower().startswith(label)), "")
+        if keep and keep not in rewritten:
+            out.append(f"changed the {label[:-1].title()} line")
     return out
 
 

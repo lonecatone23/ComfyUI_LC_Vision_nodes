@@ -35,6 +35,11 @@ How to answer:
 - Only talk about nodes, settings and files that are in the WORKFLOW section. Never invent a node id, setting or file.
 - A setting's allowed values are listed after "options:". Pick only from those.
 - If the CHECKUP section lists problems and the user asks what's wrong, explain those first.
+- If there is a SYMPTOM CHECK section (the user described a problem like a blurry or black picture), answer from it:
+  name the SUSPECT settings and what to change, using the values given. A part that is switched off (like bypassed
+  detailers) is not the cause of a blurry or black picture unless the SYMPTOM CHECK marks it SUSPECT. If nothing is
+  marked SUSPECT, say the usual settings look right and ask what the picture looks like (or to share it). The words
+  SUSPECT and ok are labels for you: never write them in the answer.
 - If you are not sure, say so and ask a short question.
 - Keep it short: explaining a whole workflow takes about 200 words. Go longer only when asked.
 - Nodes and groups marked [bypassed], [muted] or "all off" ARE in the workflow, just turned off. Say "it's in
@@ -327,6 +332,21 @@ def _fit(llm, context, turns, scale=1.0):
     return SYSTEM + "\n\n" + ctx, turns
 
 
+_LONE_SURROGATE = re.compile(r"[\ud800-\udfff]")
+
+
+def _clean(value):
+    """Drop half-emoji left by the browser cutting a string mid-character (lone UTF-16 surrogates): Python can't
+    encode them and the whole chat fails with 'surrogates not allowed'."""
+    if isinstance(value, str):
+        return _LONE_SURROGATE.sub("", value)
+    if isinstance(value, list):
+        return [_clean(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _clean(v) for k, v in value.items()}
+    return value
+
+
 def _chat(messages, context, requested):
     llm = _load(requested)
     turns = [{"role": m["role"], "content": str(m.get("content", ""))[:4000]}
@@ -476,7 +496,7 @@ try:
     async def _chat_route(request):
         import asyncio
 
-        data = await request.json()
+        data = _clean(await request.json())
         if not (data.get("messages") or []):
             return web.json_response({"error": "Nothing to answer."}, status=400)
         if not await _wait_lock():
@@ -494,7 +514,7 @@ try:
     async def _tour_route(request):
         import asyncio
 
-        data = await request.json()
+        data = _clean(await request.json())
         if not (data.get("parts") or "").strip():
             return web.json_response({"error": "This workflow has nothing to tour."}, status=400)
         if not await _wait_lock():
