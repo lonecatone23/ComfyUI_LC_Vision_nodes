@@ -51,7 +51,7 @@ REWRITE = (
     "steps), so the shot never jumps. If the END STATE has the main person facing away from the camera, the first "
     "beat turns them back toward the camera (or the camera moves around to their face).\n"
     "Keep every timestamp exactly, keep the order of events, keep every quoted line word for word, keep the lines "
-    "that start with \"Place:\", \"Holding:\" or \"Sound:\" exactly as they are, and otherwise describe actions only (never appearance).\n"
+    "that start with \"Place:\", \"Holding:\", \"Sound:\" or \"Camera:\" exactly as they are, and otherwise describe actions only (never appearance).\n"
     "Example. END STATE: she stands inside the cafe by the counter. PLANNED: At 1.62 seconds, she pushes open "
     "the cafe door and steps inside. At 3.00 seconds, she orders a coffee. REWRITE: At 1.62 seconds, she turns "
     "to the counter and steps up to it. At 3.00 seconds, she orders a coffee.\n"
@@ -115,7 +115,7 @@ def _problems(original: str, rewritten: str, seg_s: float) -> list:
         out.append("runs past the segment")
     if len(rewritten) > len(original) * 1.6 + 80:
         out.append("grew too long")
-    for label in ("place:", "holding:", "sound:"):
+    for label in ("place:", "holding:", "sound:", "camera:"):
         keep = next((ln.strip() for ln in original.splitlines() if ln.strip().lower().startswith(label)), "")
         if keep and keep not in rewritten:
             out.append(f"changed the {label[:-1].title()} line")

@@ -8,9 +8,11 @@ import * as chat from "./va_chat.js";
 import { highlight, clearGlow, boxOf } from "./va_glow.js";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const nodes = () => app.graph?._nodes || [];
+// a tour is about the workflow's top level, also while the canvas shows the inside of a subgraph
+const root = () => app.rootGraph || app.graph;
+const nodes = () => root()?._nodes || [];
 const isNote = (n) => /Note|Label|Reroute|Primitive$/i.test(n.type);
-const groupsOf = () => app.graph?._groups || [];
+const groupsOf = () => root()?._groups || [];
 const byId = (id) => nodes().find((n) => String(n.id) === String(id));
 /** What a setting is called on the node face (panel toggles carry their target's name as a label, not as the name). */
 export const widgetLabel = (id, name) => {
@@ -70,7 +72,7 @@ export function parts() {
 const MAX_STEPS = 16;
 const useful = (p) => p.nodes.filter((n) => !PLUMBING.test(n.type));
 // groups people name for what they are: wiring and helpers, not something to explain
-const PLUMB_LABEL = /get ?sets?|noodle|plumbing|wiring|bypass|switch|reroute|relay/i;
+const PLUMB_LABEL = /get ?sets?|noodle|spaghetti|plumbing|wiring|bypass|switch|reroute|relay/i;
 // "Image Group 3" and "Image Group 4", "Anypaint" and "# Anypaint 🖌️": the same kind of part
 const kind = (label) => String(label).toLowerCase().replace(/[^a-z ]+/g, " ").replace(/\b(group|lc|the|and|w|s)\b/g, " ").replace(/\s+/g, " ").trim();
 
@@ -185,7 +187,7 @@ export function check(tour) {
 }
 
 const extra = () => {
-  const g = app.graph;
+  const g = app.rootGraph || app.graph; // the workflow's own extra, also while you are inside a subgraph
   g.extra = g.extra || {};
   g.extra.vision_assistant = g.extra.vision_assistant || { snapshots: [] };
   return g.extra.vision_assistant;
@@ -332,6 +334,7 @@ function onKey(e) {
 /** Start (or jump within) a tour. onStep(i) lets the panel mark the current step. */
 export function start(tour, i = 0, onStep) {
   if (!tour?.steps?.length) return;
+  toTop();
   if (!play) {
     const card = document.createElement("div");
     card.className = "vt-card";
@@ -378,3 +381,125 @@ st.textContent = `
 .vt-dots i{width:7px;height:7px;border-radius:50%;background:var(--border-color,#555);cursor:pointer}
 .vt-dots i.on{background:#ffb84a}`;
 document.head.appendChild(st);
+
+/** Back to the workflow's top level when the canvas shows the inside of a subgraph (tours light up top-level parts). */
+export function toTop() {
+  const c = app.canvas;
+  if (!c || !app.rootGraph || c.graph === app.rootGraph) return;
+  try {
+    c.setGraph(app.rootGraph);
+  } catch (_) {}
+}
+
+// ------------------------------------------------------------------ suggested steps, no AI: the usual path of travel
+// load image > size > model > LLM > prompt > generate > upscale / detail > post process > save
+const STAGES = [
+  { key: "load", rank: 0, title: /\b(load|input|source|reference|ref)\b|image in/i, node: /LoadImage|Load ?Image|ImageLoader|LoadVideo/i,
+    text: "Load your picture here.", sets: /^(image|video|file)$/i },
+  { key: "size", rank: 1, title: /\b(size|resolution|aspect|ratio|dimensions?|latent)\b/i, node: /EmptyLatent|EmptySD3|EmptyHunyuan|AspectRatio|Megapixel|LatentSize|ImageResize(?!.*Upscale)/i,
+    text: "Pick the size and shape of the image.", sets: /^(width|height|megapixels?|aspect.*|ratio|resolution|preset|orientation|batch_size)$/i },
+  { key: "model", rank: 2, title: /\b(models?|loras?|checkpoint|loaders?|optimi[sz]er)\b/i, node: /CheckpointLoader|UNETLoader|UnetLoader|LoraLoader|Lora ?Loader|LoraStack|LCLora|CLIPLoader|DualCLIP|Optimizer|ModelSampling/i,
+    text: "The model and LoRAs live here.", sets: /^(ckpt_name|unet_name|model|lora.*|strength.*|preset)$/i },
+  { key: "llm", rank: 3, title: /\b(llm|vision|vlm|caption|enhanc\w*|qwen|florence|gemini|ollama|gpt|translat\w*)\b/i, node: /Vision|LLM|Qwen.?VL|Florence|Ollama|Gemini|GPT|Caption|JoyCap|PromptEnhanc|Llama|Translat/i,
+    text: "The vision model reads your picture or idea and writes the prompt for you.", sets: /^(enabled?|mode|instruction|style|task|preset)$/i },
+  { key: "prompt", rank: 4, title: /\b(prompts?|text|conditioning|positive|negative)\b/i, node: /CLIPTextEncode|TextEncode|PromptBox|Prompt(?!Enhanc)|LCText|StringMultiline/i,
+    text: "Type what you want to see.", sets: /^(text|prompt|positive|string|value)$/i },
+  { key: "generate", rank: 5, title: /\b(generat\w*|sampl\w*|ksampler|render|first pass|main|base)\b/i, node: /KSampler|SamplerCustom|Sampler(?!Select)|Guider$/i,
+    text: "This makes the image. Steps, CFG and seed live here.", sets: /^(seed|noise_seed|steps|cfg|denoise|sampler_name|scheduler)$/i },
+  { key: "upscale", rank: 6, title: /\b(upscal\w*|super ?res\w*|enlarg\w*|hires|hi-res|tiled)\b/i, node: /Upscale|SUPIR|VOSR|SeedVR|TiledDiffusion|UltimateSD/i,
+    text: "Makes the image bigger and sharper.", sets: /^(upscale_model|model_name|scale_by|scale|upscale_by|denoise|factor)$/i },
+  { key: "detail", rank: 6, title: /\b(detail\w*|face ?fix|faces?|hands?|inpaint\w*|anypaint|refin\w*)\b/i, node: /Detailer|FaceDetail|Inpaint|SAM|Segment|BBox|Anypaint|ADetailer/i,
+    text: "Redraws faces, hands and small details.", sets: /^(denoise|steps|guide_size|bbox_threshold|threshold|prompt)$/i },
+  { key: "post", rank: 7, title: /\b(post|effects?|fx|colou?r|lut|grain|film|sharpen|finish\w*|grade|grading|lighting|look)\b/i, node: /LUT|Grain|Sharpen|Vignette|ColorMatch|ColorCorrect|Film|Bloom|Chromatic|ToneCurve|PostProcess|Lighting|PhoneLook|SkinBeauty/i,
+    text: "Final touches: color, grain, sharpen, etc.", sets: /^(strength|amount|intensity|preset|lut_name|grain.*)$/i },
+  { key: "save", rank: 8, title: /\b(save|output|export)\b/i, node: /SaveImage|Save ?Image|SaveVideo|ImageSave|SaveAnimated|LCSave/i,
+    text: "Where your image is saved.", sets: /^(filename_prefix|output_path|path|format|quality)$/i },
+];
+
+const boundsOf = (g) => g._bounding || g.bounding || [g.pos[0], g.pos[1], g.size[0], g.size[1]];
+const inside = (a, b) => { // group a sits inside group b
+  const [ax, ay, aw, ah] = boundsOf(a), [bx, by, bw, bh] = boundsOf(b);
+  return a !== b && ax >= bx && ay >= by && ax + aw <= bx + bw && ay + ah <= by + bh;
+};
+const nodesIn = (g) => nodes().filter((n) => !isNote(n) && inGroup(n, g));
+// a subgraph node counts as the nodes inside it
+const typesOf = (n) => [n.type, n.title, ...((n.subgraph?._nodes || n.subgraph?.nodes || []).flatMap((x) => [x.type, x.title]))].filter(Boolean).join(" ");
+
+/** Which stage of the path a group is: its title first (the earliest word wins), then what its nodes are. */
+function stageOf(g) {
+  const title = String(g.title || "");
+  const byTitle = STAGES.map((st) => ({ st, at: title.search(st.title) })).filter((x) => x.at >= 0).sort((a, b) => a.at - b.at);
+  if (byTitle.length) return byTitle[0].st;
+  const counts = STAGES.map((st) => ({ st, n: nodesIn(g).filter((n) => !PLUMBING.test(n.type) && st.node.test(typesOf(n))).length }));
+  const best = counts.sort((a, b) => b.n - a.n)[0];
+  return best && best.n ? best.st : null;
+}
+
+/** Up to 3 settings a beginner touches in this stage, from the nodes in its groups. */
+function stageSettings(st, gs) {
+  if (!st) return [];
+  const out = [];
+  for (const g of gs) for (const n of nodesIn(g)) {
+    if (PLUMBING.test(n.type)) continue;
+    for (const w of n.widgets || []) {
+      if (out.length >= 3) return out;
+      if (!w.name || w.type === "button" || w.hidden || w.options?.serialize === false || !st.sets.test(w.name)) continue;
+      if (out.some((x) => x.widget === w.name)) continue; // one "denoise" per step is plenty
+      out.push({ node: n.id, widget: w.name, why: "" });
+    }
+  }
+  return out;
+}
+
+/** Suggested steps for a hand-made tour: the top-level groups in the usual path of travel, a starter line each.
+ * A nested group only gets its own step when its parent is a catch-all holding several stages. */
+export function suggest() {
+  const all = groupsOf().filter((g) => !PLUMB_LABEL.test(g.title || "") && nodesIn(g).some((n) => !PLUMBING.test(n.type)));
+  const top = all.filter((g) => !all.some((p) => inside(g, p)));
+  let picked = [];
+  for (const g of top) {
+    const kids = all.filter((k) => inside(k, g) && !all.some((m) => m !== g && inside(k, m) && inside(m, g)));
+    const kidStages = new Set(kids.map(stageOf).filter(Boolean).map((st) => st.key));
+    if (kidStages.size >= 2 && !stageOf(g)) picked.push(...kids);
+    else picked.push(g);
+  }
+  // reading order: rows top to bottom (tops within 300 px), left to right inside a row
+  picked.sort((a, b) => a.pos[1] - b.pos[1]);
+  const rows = [];
+  for (const g of picked) {
+    const row = rows.find((r) => Math.abs(r[0].pos[1] - g.pos[1]) < 300);
+    if (row) row.push(g);
+    else rows.push([g]);
+  }
+  picked = rows.flatMap((r) => r.sort((a, b) => a.pos[0] - b.pos[0]));
+  // a group that fits no stage stays next to the group before it
+  let last = -1;
+  const items = picked.map((g, i) => {
+    const st = stageOf(g);
+    last = st ? st.rank : last;
+    return { g, st, rank: st ? st.rank : last + 0.5, i };
+  });
+  items.sort((a, b) => a.rank - b.rank || a.i - b.i);
+  // neighbours of the same stage share one step
+  const steps = [];
+  for (const it of items) {
+    const prev = steps[steps.length - 1];
+    if (prev && it.st && prev.st === it.st) {
+      prev.gs.push(it.g);
+      continue;
+    }
+    steps.push({ st: it.st, gs: [it.g] });
+  }
+  const gi = (g) => groupsOf().indexOf(g);
+  const name = (g) => String(g.title || "Step").replace(/^#\s*/, "").trim();
+  if (!steps.length) { // no groups: the columns parts() finds
+    return parts().map((p) => ({ title: p.label, text: "", nodes: p.nodes.map((n) => n.id), groups: [], settings: [] }));
+  }
+  return steps.map(({ st, gs }) => ({
+    title: gs.map(name).join(" + ").slice(0, 80),
+    text: st ? st.text : "",
+    groups: gs.map((g) => ({ title: g.title, index: gi(g) })),
+    nodes: [],
+    settings: stageSettings(st, gs),
+  }));
+}

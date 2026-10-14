@@ -44,7 +44,7 @@ export const HELP_HTML = [
     "<b>How much VRAM does it use?</b> None until you ask the chat something. Then the chat model loads: about 10 GB for the 8B (20 GB+ cards), 7 GB on 16 GB cards, 5 GB on 12 GB, 3.5 GB on 8 GB. The checkup, snapshots, library and playing a saved tour never use VRAM.",
     "<b>Does it take VRAM while I render?</b> No. The chat model unloads when you queue, a minute after the last answer, or with <b>Free VRAM</b>.",
     "<b>Smaller card?</b> Leave <b>LC Settings ⚙️ > Vision > Chat model</b> on <b>Auto</b>: it picks the biggest model that fits. Under 8 GB it chats on the <b>CPU</b> instead: under 1 GB of VRAM, 10 to 30 seconds an answer. <b>Off</b> never loads a chat model.",
-    "<b>Why can't I build a tour?</b> Building one needs the 8B model (about 11 GB). A tour saved in the workflow plays on any card, no VRAM needed.",
+    "<b>Why can't I build a tour?</b> Building one needs a 20 GB+ card: the 8B model with a long 16k reply, about 11 GB. On a smaller card a bigger model download (9B etc.) won't unlock it. Any computer can make one by hand: Snapshots tab, <b>✚ Create tour</b>. A tour saved in the workflow plays on any card, no VRAM needed.",
     "<b>It got something wrong.</b> Say so, or click <b>Clear</b> and ask again. It never changes anything without your yes.",
     "<b>It's talking about the wrong workflow.</b> Click <b>Check again</b>. It follows tab switches by itself.",
     "<b>Can I turn it off?</b> LC Settings ⚙️ > Vision > Vision Assistant.",

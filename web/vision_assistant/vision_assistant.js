@@ -126,6 +126,10 @@ a.va-chip{text-decoration:none;display:inline-block}
 .va-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#e77;margin-left:5px;vertical-align:middle}
 .va-alert{position:relative}
 .va-alert::after{content:"";position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:50%;background:#e77}
+.va-tourwait{position:relative}
+.va-tourwait::before{content:"";position:absolute;top:17px;right:6px;width:7px;height:7px;border-radius:50%;background:#eb4}
+.va-dot.tour{background:#eb4}
+.va-tourwarn{display:flex;align-items:center;gap:8px;margin:6px 0 8px;padding:6px 8px;border:1px solid #eb4;border-radius:8px;color:#eb4;font-weight:600}
 `;
   st.textContent += HELP_CSS;
   document.head.appendChild(st);
@@ -134,6 +138,7 @@ a.va-chip{text-decoration:none;display:inline-block}
 // ------------------------------------------------------------------ render
 function render() {
   const el = ui.el;
+  markIcon();
   if (!el) return; // the panel element can arrive before it is attached to the page
   const tabs = [
     ["snapshots", "Snapshots", "Snapshots saved in this workflow"],
@@ -144,10 +149,11 @@ function render() {
   else if (ui.tab === "movie") ui.tab = "chat";
   el.innerHTML = `<div class="va">
     <div class="va-head"><img src="${LOGO_PNG}" alt=""><b>Vision Assistant</b></div>
-    <div class="va-tabs">${tabs.map(([id, label, tip]) => `<button class="va-tab${ui.tab === id ? " on" : ""}" data-tab="${id}" title="${tip}">${label}${id === "chat" && problems() ? '<span class="va-dot"></span>' : ""}</button>`).join("")}<button class="va-help${ui.help ? " on" : ""}" data-help title="Help: how to use it, FAQ, tips">?</button></div>
+    <div class="va-tabs">${tabs.map(([id, label, tip]) => `<button class="va-tab${ui.tab === id ? " on" : ""}" data-tab="${id}" title="${tip}">${label}${id === "chat" && problems() ? '<span class="va-dot"></span>' : ""}${id === "snapshots" && tourUnsaved() ? '<span class="va-dot tour" title="Your guided tour is not saved yet"></span>' : ""}</button>`).join("")}<button class="va-help${ui.help ? " on" : ""}" data-help title="Help: how to use it, FAQ, tips">?</button></div>
     ${ui.help ? `<div class="va-helpbox"><div class="va-hhead"><span>Vision Assistant help</span><button class="va-dots" data-helpclose title="Close">✕</button></div>${HELP_HTML}</div>` : ""}
     <div class="va-body"></div></div>`;
   el.querySelectorAll(".va-tab").forEach((b) => (b.onclick = () => {
+    if (ui.view === "touredit") ui.tourCollect?.(); // leaving the editor keeps what was typed, waiting for Save tour
     ui.tab = b.dataset.tab;
     ui.view = "list";
     ui.menu = null;
@@ -177,6 +183,13 @@ function render() {
     box.onscroll = () => (ui.helpScroll = box.scrollTop);
   }
   const body = el.querySelector(".va-body");
+  const out = renderBody(body);
+  tourWarn(body);
+  if (out?.then) out.then(() => tourWarn(body)).catch(() => {}); // the library draws after it loads
+  return out;
+}
+
+function renderBody(body) {
   if (ui.view === "save") return renderSave(body);
   if (ui.view === "touredit") return renderTourEdit(body);
   if (ui.view === "place") return renderPlace(body);
@@ -231,7 +244,9 @@ function toursHtml() {
       </div>`
       : fresh ? `<div class="va-row"><div class="va-grow"><div class="va-name">🧭 ${esc(fresh.title)}</div><div class="va-sub">${fresh.steps.length} steps, not saved yet</div></div>
         <button class="va-btn" data-tp="play">▶ Play</button><button class="va-btn pri" data-tp="save" title="Saves the tour inside this workflow, so everyone who opens it gets it">Save to workflow</button></div>`
-      : `<div class="va-hint">No tour yet. Ask the chat "Explain this workflow" and press <b>▶ Guided tour</b>, then save it here.</div>`}`;
+      : `<div class="va-row"><div class="va-grow"><div class="va-sub">No tour yet. Make one by hand, no AI needed: pick what each step lights up and write the words.</div></div>
+        <button class="va-btn pri" data-tp="create" title="Opens the tour editor with an empty tour. Works on any computer.">✚ Create tour</button></div>
+        <div class="va-hint">💡 On a 20 GB+ card the chat can write a first draft: ask it "Explain this workflow" and press <b>▶ Guided tour</b>.</div>`}`;
 }
 
 function wireTours(body) {
@@ -244,6 +259,13 @@ function wireTours(body) {
   };
   body.querySelectorAll("[data-tp]").forEach((b) => (b.onclick = () => {
     if (b.dataset.tp === "play") return tour.start(tour.saved() || lastTour(), 0);
+    if (b.dataset.tp === "create") {
+      ui.tourEdit = { title: wfName(), steps: [], source: "hand" };
+      ui.tourEditBase = "";
+      ui.tourEditKey = wfKey();
+      ui.view = "touredit";
+      return render();
+    }
     try {
       tour.save(lastTour());
     } catch (err) {
@@ -264,7 +286,10 @@ function wireTours(body) {
     }
     if (a === "edit") {
       ui.view = "touredit";
-      ui.tourEdit = JSON.parse(JSON.stringify(tour.saved()));
+      if (!editing()) ui.tourEdit = JSON.parse(JSON.stringify(tour.saved())); // unsaved edits come back
+      else return render();
+      ui.tourEditBase = JSON.stringify(ui.tourEdit);
+      ui.tourEditKey = wfKey();
       return render();
     }
     if (a === "delete") {
@@ -289,8 +314,9 @@ const MAX_TOUR_SETTINGS = 8;
 
 function renderTourEdit(body) {
   const t = ui.tourEdit;
+  const top = app.rootGraph || app.graph;
   const nodeName = (id) => {
-    const n = app.graph?.getNodeById?.(Number(id)) || app.graph?.getNodeById?.(id);
+    const n = top?.getNodeById?.(Number(id)) || top?.getNodeById?.(id);
     return n ? core.nodeLabel(n) : `#${id}`;
   };
   const picker = (st, i) => {
@@ -305,7 +331,7 @@ function renderTourEdit(body) {
         .map((c) => `<option value="${esc(`${c.node}|${c.widget}`)}">${esc(c.label)}</option>`).join("")}</optgroup>`).join("")}
     </select>`;
   };
-  const groupsAll = app.graph?._groups || [];
+  const groupsAll = top?._groups || [];
   const groupLabel = (g, idx) => {
     const same = groupsAll.filter((x) => x.title === g.title);
     return same.length > 1 ? `${g.title} (${same.indexOf(g) + 1} of ${same.length})` : g.title || `Group ${idx + 1}`;
@@ -315,8 +341,9 @@ function renderTourEdit(body) {
     return gs.length ? gs.join(", ") : `${(st.nodes || []).length} node${(st.nodes || []).length === 1 ? "" : "s"}`;
   };
   // read the canvas selection when it's needed, not when the editor opened: people select nodes after opening it
-  const selectedNow = () => Object.keys(app.canvas?.selected_nodes || {})
-    .map((id) => app.graph.getNodeById(Number(id)) || app.graph.getNodeById(id)).filter(Boolean);
+  // nodes inside a subgraph can't be lit by a tour: select the subgraph node itself on the top level
+  const selectedNow = () => (app.canvas?.graph && app.canvas.graph !== top ? [] : Object.keys(app.canvas?.selected_nodes || {})
+    .map((id) => top.getNodeById(Number(id)) || top.getNodeById(id)).filter(Boolean));
   const targetOptions = () => {
     const n = selectedNow().length;
     return `<option value="">Light up…</option>
@@ -326,15 +353,17 @@ function renderTourEdit(body) {
   };
   const btn = (attr, label, tip, off) => `<button class="va-link" ${attr} title="${tip}" ${off ? "disabled style=\"opacity:.35\"" : ""}>${label}</button>`;
   body.innerHTML = `
-    <div style="font-size:15px;font-weight:700;color:#e77;margin:2px 0 10px">🛑🚫✋ You must save the workflow when you are done editing!</div>
+    <div style="font-size:15px;font-weight:700;color:#e77;margin:2px 0 10px">🛑🚫✋ You must hit <b>Save tour</b> when you are done editing!</div>
     <div class="va-name" style="font-weight:600">Edit tour</div>
     <div class="va-hint">Change the words, the steps and which settings get a numbered marker. 💡 To use nodes outside a step (or as a new step), select them on the canvas first.</div>
     <input class="va-input" data-f="title" value="${esc(t.title)}" title="The tour's name">
+    ${t.steps.length ? "" : `<div class="va-card l1"><div class="va-name">💡 Start here</div><div class="va-hint">A step lights up one part of the workflow (a group, or nodes you select) and shows your words next to it. Add them one at a time below, or start from the suggested steps: your groups in the usual order (load image, size, model, LLM, prompt, generate, upscale and detail, post process, save), each with a starter line and its main settings marked. Change anything after.</div>
+      <div class="va-actions"><button class="va-btn" data-ns="groups">Suggested steps</button></div></div>`}
     ${t.steps.map((st, i) => `<div class="va-group" style="display:flex;align-items:center;gap:8px">
         <span>Step ${i + 1}</span><span class="va-sub" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(targetOf(st))}</span>
         ${btn(`data-relight="${i}"`, "◎", "Light up the nodes selected on the canvas instead (select them first). The markers stay.")}${btn(`data-mv="${i}|-1"`, "↑", "Move up", i === 0)}${btn(`data-mv="${i}|1"`, "↓", "Move down", i === t.steps.length - 1)}${btn(`data-del="${i}"`, "×", "Remove this step")}</div>
-      <input class="va-input" data-st="${i}" data-k="title" value="${esc(st.title)}">
-      <textarea class="va-input" data-st="${i}" data-k="text" rows="3" style="resize:vertical;font-family:inherit">${esc(st.text)}</textarea>
+      <input class="va-input" data-st="${i}" data-k="title" value="${esc(st.title)}" placeholder="Step title">
+      <textarea class="va-input" data-st="${i}" data-k="text" rows="3" style="resize:vertical;font-family:inherit" placeholder="What this part does and what to change here">${esc(st.text)}</textarea>
       ${st.settings.map((x, k) => `<div class="va-sub" style="display:flex;gap:6px;align-items:center;margin-top:4px">
         <span style="white-space:nowrap">${k + 1}. ${esc(nodeName(x.node))} › ${esc(tour.widgetLabel(x.node, x.widget))}:</span>
         <input class="va-input" style="flex:1;min-width:0;padding:2px 6px" data-set="${i}|${k}" value="${esc(x.why)}" placeholder="Why it matters">
@@ -349,7 +378,7 @@ function renderTourEdit(body) {
       </select>
       <button class="va-btn" data-ns="add">+ Add step</button>
     </div>
-    <div class="va-actions" style="margin-top:8px"><button class="va-btn pri" data-te="save">Save</button><button class="va-btn" data-te="cancel">Cancel</button></div>`;
+    <div class="va-actions" style="margin-top:8px"><button class="va-btn pri" data-te="save">Save tour</button><button class="va-btn" data-te="cancel">Cancel</button></div>`;
   body.querySelectorAll("input, textarea, select").forEach((el) => (el.onkeydown = (e) => e.stopPropagation()));
   // copy what's typed into the tour before anything redraws the editor
   const collect = () => {
@@ -417,6 +446,16 @@ function renderTourEdit(body) {
     });
     toast("success", `Step ${Number(b.dataset.relight) + 1} now lights up ${ns.length} node${ns.length === 1 ? "" : "s"}`);
   }));
+  const everyGroup = body.querySelector('[data-ns="groups"]');
+  if (everyGroup) everyGroup.onclick = () => {
+    const steps = tour.suggest();
+    if (!steps.length) return toast("info", "Nothing to suggest", "Add steps one at a time below.");
+    keepScroll(() => {
+      collect();
+      t.steps.push(...steps);
+    });
+    toast("success", `${steps.length} suggested steps`, "Check the words and the order, then press Save tour.");
+  };
   body.querySelector('[data-ns="add"]').onclick = () => {
     const target = targetSel.value;
     if (!target) return toast("info", "Pick what the step lights up", "A group, or select nodes on the canvas first.");
@@ -439,13 +478,17 @@ function renderTourEdit(body) {
     el?.scrollIntoView({ block: "center" });
     el?.focus();
   };
+  ui.tourCollect = collect;
   body.querySelector('[data-te="cancel"]').onclick = () => {
+    ui.tourEdit = null;
     ui.view = "list";
     render();
   };
   body.querySelector('[data-te="save"]').onclick = () => {
     collect();
+    if (!t.steps.length) return toast("info", "Add at least one step first");
     tour.save(t); // locks it again
+    ui.tourEdit = null;
     ui.view = "list";
     toast("success", "Tour saved and locked", "Save the workflow to keep it.");
     render();
@@ -726,9 +769,46 @@ async function refreshCards(force = false) {
   else if (changed && ui.el?.isConnected) ui.el.querySelector('[data-tab="chat"]')?.replaceChildren(document.createTextNode("Chat"), ...(problems() ? [Object.assign(document.createElement("span"), { className: "va-dot" })] : []));
 }
 
+/** A tour built or edited but not saved into the workflow yet (a workflow with no tour at all doesn't count). */
+const editing = () => !!ui.tourEdit && ui.tourEditKey === wfKey(); // edits belong to the workflow they were made in
+const tourUnsaved = () => (ui.view === "touredit" && editing()) || (editing() && JSON.stringify(ui.tourEdit) !== ui.tourEditBase)
+  || (!!lastTour() && !tour.saved());
+
+/** Saves whatever tour is waiting: the editor's changes, or a tour built by the chat. */
+function saveTourNow() {
+  if (ui.view === "touredit") return ui.el?.querySelector('[data-te="save"]')?.click();
+  try {
+    if (editing()) {
+      tour.save(ui.tourEdit);
+      ui.tourEdit = null;
+    } else {
+      tour.save(lastTour());
+      ui.tours.delete(wfKey());
+    }
+  } catch (err) {
+    return toast("error", "Not saved", err.message);
+  }
+  toast("success", "Tour saved and locked", "Save the workflow to keep it.");
+  render();
+}
+
+/** ⚠️ Unsaved tour, on every tab (under the checkup line in Chat), with its own Save tour button. */
+function tourWarn(body) {
+  if (!tourUnsaved() || ui.view === "touredit" || body.querySelector(".va-tourwarn")) return;
+  const d = document.createElement("div");
+  d.className = "va-tourwarn";
+  d.innerHTML = '<span class="va-grow">⚠️ Unsaved tour</span><button class="va-btn pri" data-tw="save" title="Saves the guided tour into this workflow">Save tour</button>';
+  d.querySelector("[data-tw]").onclick = saveTourNow;
+  const row = ui.tab === "chat" && ui.view === "list" ? body.querySelector(".va-row") : null;
+  if (row) row.after(d);
+  else body.prepend(d);
+}
+
 function markIcon() {
   const btn = document.querySelector(".va-icon")?.closest("button");
   btn?.classList.toggle("va-alert", problems() > 0);
+  btn?.classList.toggle("va-tourwait", tourUnsaved());
+  if (btn) btn.title = tourUnsaved() ? "Vision Assistant: your guided tour is not saved yet (Snapshots tab)" : TAB.tooltip;
 }
 
 /** Movie tab -> Chat, with the project's numbers already typed in as the question. */
@@ -965,7 +1045,7 @@ function msgHtml(m, i) {
   const asked = chatOf()[i - 1];
   const explain = !m.error && asked?.role === "user" && !asked.about && EXPLAIN_Q.test(asked.content);
   const canBuild = !!ui.chatStatus?.plan?.tours || !!tour.saved() || !!m.tour || !!lastTour();
-  const tourBit = !explain ? "" : `<div class="va-tourbar"><button class="va-btn pri" data-tour="${i}" ${canBuild ? "" : "disabled"} title="${canBuild ? "Walks you through the workflow on the canvas, one part at a time" : "Building a tour needs about 11 GB of VRAM (the 8B model). A tour saved in the workflow still plays on any card."}">${m.tourBusy ? "Building the tour (about a minute)…" : "▶ Guided tour"}</button>${tour.saved() ? '<span class="va-sub">by the author</span>' : ""}</div>
+  const tourBit = !explain ? "" : `<div class="va-tourbar"><button class="va-btn pri" data-tour="${i}" ${canBuild ? "" : "disabled"} title="${canBuild ? "Walks you through the workflow on the canvas, one part at a time" : esc(ui.chatStatus?.plan?.tour_why || "Building a tour needs a 20 GB+ card (the 8B model at 16k context). A tour saved in the workflow still plays on any card.")}">${m.tourBusy ? "Building the tour (about a minute)…" : "▶ Guided tour"}</button>${tour.saved() ? '<span class="va-sub">by the author</span>' : ""}</div>
     ${m.tour ? `<div class="va-group" style="margin-top:4px">How it works <span class="va-sub">(click a step)</span></div><ol class="va-tourlist">${m.tour.steps.map((st, k) => `<li data-step="${i}|${k}" class="${tour.playing() === k ? "on" : ""}"><b>${esc(st.title)}</b><span>${esc(st.text)}</span></li>`).join("")}</ol>` : ""}`;
   return `<div class="va-msg bot${m.error ? " err" : ""}">${tourBit}${txt || (props.length ? "" : "…")}
     ${good.length ? `<div class="va-prop"><div class="va-group" style="margin-top:0">${m.state === "done" ? "Done:" : m.state === "no" ? "Not done:" : "Shall I do this?"}</div>

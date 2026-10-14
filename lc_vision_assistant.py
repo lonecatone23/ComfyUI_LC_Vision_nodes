@@ -138,6 +138,26 @@ def _need_gb(path, ctx):
 
 
 def _plan(requested=None):
+    plan = _plan_for(requested)
+    if not plan["tours"]:
+        plan["tour_why"] = _tour_why(plan)
+    return plan
+
+
+def _tour_why(plan):
+    """Why the Guided tour button is grey, in plain words. The limit is the card (a 16k reply), not which model is
+    downloaded, so a bigger download only helps on a 20 GB+ card."""
+    saved = " Any computer can make one by hand: Snapshots tab, Create tour. A tour saved in the workflow plays on any card."
+    if plan["mode"] == "gpu" and not plan["name"]:
+        return plan["why"] + saved
+    if plan["vram_gb"] < 20:
+        return (f"Building a tour needs a 20 GB+ card (the 8B model with a long 16k reply, about 11 GB). This card has "
+                f"{plan['vram_gb']:.0f} GB, so a bigger model download won't change it." + saved)
+    return ("Building a tour needs the 8B model at 16k context: LC Settings > Vision, download the 8B Q8 and leave the "
+            "chat model on Auto." + saved)
+
+
+def _plan_for(requested=None):
     """{name, path, ctx, need_gb, vram_gb, tours, lite, why}: what the chat loads on this card.
     requested: None / "auto" = pick for the card, "off" = no chat, or a model name from the list."""
     vram = _vram_gb()
@@ -407,8 +427,9 @@ TOUR_SCHEMA = {
 
 
 def _tour(parts, context, requested):
-    if not _plan(requested)["tours"]:
-        raise RuntimeError("building a tour needs about 11 GB of VRAM (the 8B model with a long reply). A tour saved in the workflow still plays on any card")
+    plan = _plan(requested)
+    if not plan["tours"]:
+        raise RuntimeError(plan["tour_why"])
     llm = _load(requested)
     ask = "PARTS:\n" + (parts or "")[:16000] + "\n\nWrite the tour as JSON."
     if _STATE["qwen3"]:

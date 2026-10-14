@@ -48,6 +48,8 @@ _STYLE_RE = re.compile(r"###STYLE###\s*(.*?)(?=###SEGMENT_\d+###|\Z)", re.DOTALL
 _SEG_RE = re.compile(r"###SEGMENT_(\d+)###[ \t]*\[?(CUT|CONTINUE)?\]?[ \t]*\n?(.*?)(?=###SEGMENT_\d+###|\Z)", re.DOTALL | re.IGNORECASE)
 _CUT_RE = re.compile(r"\bcuts?\s+(?:back\s+)?to\b|\bscene\s+\d+\b|\blater\s+that\b|\bthe\s+next\s+(?:day|morning)\b", re.I)
 _QUOTE_RE = re.compile(r"[\"“](.+?)[\"”]", re.DOTALL)
+_MOUTH_RE = re.compile(r",?\s*(?:with\s+)?(?:(?:his|her|their)\s+)?(?:mouth|lips)\s+(?:slightly\s+)?(?:open|opening|parted|parting)"
+                       r"(?:\s+(?:as if about to speak|in [^,.;]+))?|,?\s*as if about to speak", re.I)
 
 
 def snap_frames(seconds: float, minimum: int = 5) -> int:
@@ -83,8 +85,9 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"of the previous segment, so this segment picks up exactly where the previous one ended: "
         f"same pose, same position, same camera. Plan {new_s:.2f} seconds of NEW action on a local "
         f"clock from 0.00 to {new_s:.2f} seconds.\n"
-        f"- CUT: only where the story itself says so (\"cut to ...\"). Plan {seg_s:.2f} seconds of action "
-        f"on a local clock from 0.00 to {seg_s:.2f} seconds.\n"
+        f"- CUT: only where the story itself says so (\"cut to ...\"). Every \"cut to\" in the story starts a NEW "
+        f"segment at exactly that point, with the framing it names on the Camera line. Plan {seg_s:.2f} seconds of "
+        f"action on a local clock from 0.00 to {seg_s:.2f} seconds.\n"
         f"- Segment 1 is CUT. Every other segment is CONTINUE unless the story writes a cut at that point. "
         f"Moving to a new place (walking into a cafe) happens inside the take, not with a cut.\n\n"
         f"Staging: the camera leads the main person, so their face stays visible to the camera most of "
@@ -107,10 +110,17 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"\"Sound: the soft hum of a quiet cafe.\"). Keep it low-key: no list of separate noises (footsteps, "
         f"clinks, taps), because named sounds take over the quiet moments; name one only when it is the point "
         f"of the moment. Never music, voices, chatter, crowds or singing. End it "
-        f"with \"No music. The only voice is her own quoted line.\" in a segment with a quoted line, or \"No music. Nobody "
+        f"with \"No music. The only voice is the quoted line.\" in a segment with a quoted line, or \"No music. Nobody "
         f"speaks.\" in every other segment. Keep it word for word the same while the place stays the same. "
         f"The renderer makes up talking whenever a mouth moves, so outside a quoted line nobody's mouth "
-        f"moves: closed-mouth smiles only, no sighs, no lip movements, no muttering, no sipping.\n\n"
+        f"moves: closed-mouth smiles only, no sighs, no lip movements, no muttering, no sipping. In a segment without "
+        f"a quoted line nobody eats, chews or drinks on screen either: they hold the fork or the glass, mouths closed.\n\n"
+        f"Camera: the fourth line of every segment is \"Camera: ...\", the shot size and angle (for example "
+        f"\"Camera: wide side view of both at the table, at table height.\", \"Camera: close-up of the man, framed "
+        f"from the chest up.\" or \"Camera: slow push-in on the two of them.\"). Take it from the story whenever the "
+        f"story says how the shot looks. Keep it word for word the same while the shot stays the same; a CUT gets "
+        f"the framing the story names; a camera move the story names goes on this line. A CONTINUE segment keeps "
+        f"the framing of the segment before it (a slow camera move is fine); only a CUT changes the shot.\n\n"
         f"Rules for every segment:\n"
         f"0) FOLLOW THE STORY'S ORDER: events happen in the order the story gives them, and a quoted "
         f"line belongs at the exact moment the story puts it. If the story runs out before the last "
@@ -147,6 +157,49 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
     return text
 
 
+def _shot_list(story: str, segments: int):
+    """A story written as a shot list ("... Cut to a close-up of Daniel. ... Cut back to ..."): the story split at
+    every cut, and how many segments each shot gets (at least one; spare segments go to the longest shots). None
+    when the story has no cut or more shots than segments."""
+    marks = [m.start() for m in _CUT_RE.finditer(story)]
+    if not marks:
+        return None
+    # sentence starts outside quotes ("They let me go today. Twelve years..." is one line, not two sentences)
+    bounds, in_q = [0], False
+    for k, ch in enumerate(story):
+        if ch in "\"“”":
+            in_q = not in_q
+            if not in_q and k > 0 and story[k - 1] in ".!?":
+                bounds.append(k + 1)
+        elif ch in ".!?\n" and not in_q:
+            bounds.append(k + 1)
+    # each cut starts its own shot, from the start of the sentence holding the "cut to"
+    starts = [0]
+    for pos in marks:
+        starts.append(max(b for b in bounds if b <= pos))
+    starts = sorted(set(starts))
+    chunks = [story[a:b].strip() for a, b in zip(starts, starts[1:] + [len(story)]) if story[a:b].strip()]
+    if len(chunks) > segments:
+        return None
+    spans = [1] * len(chunks)
+    for _ in range(segments - len(chunks)):
+        # the shot with the most words per segment gets the next spare segment
+        k = max(range(len(chunks)), key=lambda i: len(chunks[i].split()) / spans[i])
+        spans[k] += 1
+    return chunks, spans
+
+
+def _shot_modes(story: str, segments: int):
+    """CUT / CONTINUE per segment from the story's shot list, or None."""
+    sl = _shot_list(story, segments)
+    if not sl:
+        return None
+    modes = []
+    for span in sl[1]:
+        modes += ["CUT"] + ["CONTINUE"] * (span - 1)
+    return modes
+
+
 def _beat_map(story: str, segments: int) -> str:
     """The story's sentences spread evenly over the segments ("Segments 3-4: ..."). Left alone, a model rushes the
     first half of a story into two segments and then stalls for ten on the last event."""
@@ -167,6 +220,15 @@ def _beat_map(story: str, segments: int) -> str:
     if buf.strip():
         sentences.append(buf.strip())
     sentences = [x for x in sentences if len(x) > 3]
+    sl = _shot_list(story, segments)
+    if sl:
+        lines, start = [], 1
+        for chunk, span in zip(*sl):
+            end = start + span - 1
+            tag = "CUT" if span == 1 else f"CUT, then {span - 1} CONTINUE"
+            lines.append(f"Segment {start} ({tag}): {chunk}" if span == 1 else f"Segments {start}-{end} ({tag}): {chunk}")
+            start = end + 1
+        return "\n".join(lines)
     if len(sentences) < 2 or segments < 2:
         return ""
     lines = []
@@ -197,6 +259,37 @@ def _parse(text: str, segments: int):
         mode, body = found.get(i, ("CONTINUE", ""))
         shots.append({"mode": "CUT" if i == 1 else mode, "action": body})
     return style, shots
+
+
+_LABEL_START = re.compile(r"[ \t]*\b(Place|Holding|Sound|Camera)\s*:\s*", re.I)
+_SOUND_TAIL = re.compile(r"(no music|nobody speaks|the only voice|no voices|no dialogue|no other)", re.I)
+
+
+def _label_lines(text: str) -> str:
+    """Place / Holding / Sound each on their own line and the action as its own paragraph, even when the model
+    wrote a whole segment on one line. Otherwise "Place: same as before" (which replaces its whole line) replaced
+    the entire segment with the previous one."""
+    t = _LABEL_START.sub(lambda m: "\n" + m.group(1).capitalize() + ": ", text).strip()
+    out, action = [], []
+    for line in t.split("\n"):
+        m = re.match(r"(Place|Holding|Sound|Camera): (.*)", line)
+        if not m:
+            action.append(line)
+            continue
+        label, rest = m.group(1), m.group(2).strip()
+        sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z\u201c\"])", rest)
+        keep = [sentences[0]]
+        for sent in sentences[1:]:
+            if label == "Sound" and _SOUND_TAIL.match(sent) and len(keep) == len(sentences[:len(keep)]):
+                keep.append(sent)
+            else:
+                break
+        out.append(f"{label}: {' '.join(keep).strip()}")
+        leftover = " ".join(sentences[len(keep):]).strip()
+        if leftover:
+            action.append(leftover)
+    body = "\n".join(x for x in action if x.strip()).strip()
+    return ("\n".join(out) + ("\n\n" + body if body else "")).strip() if out else text.strip()
 
 
 def _norm(text: str) -> str:
@@ -432,9 +525,10 @@ class LCVisionDirector:
         # the same goes for "Holding: still the same mug" and "Sound: same as before"
         last = {}
         for s in raw_shots:
+            s["action"] = _label_lines(s["action"])
             lines = s["action"].split("\n")
-            for k, ln in enumerate(lines[:3]):
-                m = re.match(r"\s*(place|holding|sound)\s*:\s*(.*)", ln, re.I)
+            for k, ln in enumerate(lines[:4]):
+                m = re.match(r"\s*(place|holding|sound|camera)\s*:\s*(.*)", ln, re.I)
                 if not m:
                     continue
                 label = m.group(1).lower()
@@ -443,9 +537,19 @@ class LCVisionDirector:
                 else:
                     last[label] = ln.strip()
             s["action"] = "\n".join(lines)
-        # one continuous take: a CUT only where the story writes one ("cut to", "later that night", "scene 2")
-        allowed = len(_CUT_RE.findall(story))
-        for k, s in enumerate(raw_shots[1:], start=2):
+            if _QUOTE_RE.search(s["action"]):  # a segment with a line never says "Nobody speaks"
+                s["action"] = re.sub(r"Nobody speaks\.?", "The only voice is the quoted line.", s["action"])
+            else:  # and one without a line never mentions one, or a mouth about to speak (H3 invents talking)
+                s["action"] = re.sub(r"The only voice is the quoted line\.?", "Nobody speaks.", s["action"])
+                s["action"] = _MOUTH_RE.sub("", s["action"])
+        # a shot list fixes CUT / CONTINUE per segment; otherwise one continuous take with a CUT only where the story
+        # writes one ("cut to", "later that night", "scene 2")
+        modes = _shot_modes(story, segments)
+        if modes:
+            for s, mode in zip(raw_shots, modes):
+                s["mode"] = mode
+        allowed = 0 if modes else len(_CUT_RE.findall(story))
+        for k, s in enumerate(raw_shots[1:], start=2) if not modes else []:
             if s["mode"] == "CUT":
                 if allowed > 0:
                     allowed -= 1
