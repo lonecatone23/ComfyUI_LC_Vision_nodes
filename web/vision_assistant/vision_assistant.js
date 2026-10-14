@@ -314,15 +314,25 @@ function renderTourEdit(body) {
     const gs = (st.groups || (st.group ? [st.group] : [])).map((r) => r.title).filter(Boolean);
     return gs.length ? gs.join(", ") : `${(st.nodes || []).length} node${(st.nodes || []).length === 1 ? "" : "s"}`;
   };
-  const picked = Object.keys(app.canvas?.selected_nodes || {});
+  // read the canvas selection when it's needed, not when the editor opened: people select nodes after opening it
+  const selectedNow = () => Object.keys(app.canvas?.selected_nodes || {})
+    .map((id) => app.graph.getNodeById(Number(id)) || app.graph.getNodeById(id)).filter(Boolean);
+  const targetOptions = () => {
+    const n = selectedNow().length;
+    return `<option value="">Light up…</option>
+      <optgroup label="Selected on the canvas">${n ? `<option value="sel">The ${n} selected node${n === 1 ? "" : "s"}</option>`
+        : `<option value="" disabled>Select nodes on the canvas first</option>`}</optgroup>
+      <optgroup label="Groups">${groupsAll.map((g, gi) => `<option value="g|${gi}">${esc(groupLabel(g, gi))}</option>`).join("")}</optgroup>`;
+  };
   const btn = (attr, label, tip, off) => `<button class="va-link" ${attr} title="${tip}" ${off ? "disabled style=\"opacity:.35\"" : ""}>${label}</button>`;
   body.innerHTML = `
+    <div style="font-size:15px;font-weight:700;color:#e77;margin:2px 0 10px">🛑🚫✋ You must save the workflow when you are done editing!</div>
     <div class="va-name" style="font-weight:600">Edit tour</div>
     <div class="va-hint">Change the words, the steps and which settings get a numbered marker. 💡 To use nodes outside a step (or as a new step), select them on the canvas first.</div>
     <input class="va-input" data-f="title" value="${esc(t.title)}" title="The tour's name">
     ${t.steps.map((st, i) => `<div class="va-group" style="display:flex;align-items:center;gap:8px">
         <span>Step ${i + 1}</span><span class="va-sub" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(targetOf(st))}</span>
-        ${btn(`data-mv="${i}|-1"`, "↑", "Move up", i === 0)}${btn(`data-mv="${i}|1"`, "↓", "Move down", i === t.steps.length - 1)}${btn(`data-del="${i}"`, "×", "Remove this step")}</div>
+        ${btn(`data-relight="${i}"`, "◎", "Light up the nodes selected on the canvas instead (select them first). The markers stay.")}${btn(`data-mv="${i}|-1"`, "↑", "Move up", i === 0)}${btn(`data-mv="${i}|1"`, "↓", "Move down", i === t.steps.length - 1)}${btn(`data-del="${i}"`, "×", "Remove this step")}</div>
       <input class="va-input" data-st="${i}" data-k="title" value="${esc(st.title)}">
       <textarea class="va-input" data-st="${i}" data-k="text" rows="3" style="resize:vertical;font-family:inherit">${esc(st.text)}</textarea>
       ${st.settings.map((x, k) => `<div class="va-sub" style="display:flex;gap:6px;align-items:center;margin-top:4px">
@@ -331,11 +341,7 @@ function renderTourEdit(body) {
         <button class="va-link" data-rm="${i}|${k}" title="Remove this marker">×</button></div>`).join("")}
       ${picker(st, i)}`).join("")}
     <div class="va-group" style="margin-top:12px">Add a step</div>
-    <select class="va-input" data-ns="target" title="What the step lights up on the canvas">
-      <option value="">Light up…</option>
-      ${picked.length ? `<optgroup label="Selected on the canvas"><option value="sel">The ${picked.length} selected node${picked.length === 1 ? "" : "s"}</option></optgroup>` : ""}
-      <optgroup label="Groups">${groupsAll.map((g, gi) => `<option value="g|${gi}">${esc(groupLabel(g, gi))}</option>`).join("")}</optgroup>
-    </select>
+    <select class="va-input" data-ns="target" title="What the step lights up on the canvas">${targetOptions()}</select>
     <div style="display:flex;gap:6px;margin-top:4px">
       <select class="va-input" data-ns="pos" style="flex:1" title="Where it goes in the tour">
         <option value="${t.steps.length}">at the end</option>
@@ -391,13 +397,34 @@ function renderTourEdit(body) {
       t.steps.splice(Number(b.dataset.del), 1);
     });
   }));
+  const targetSel = body.querySelector('[data-ns="target"]');
+  const refresh = () => { // the selection may have changed since the editor was drawn
+    const v = targetSel.value;
+    targetSel.innerHTML = targetOptions();
+    if ([...targetSel.options].some((o) => o.value === v && !o.disabled)) targetSel.value = v;
+  };
+  targetSel.onmousedown = refresh;
+  targetSel.onfocus = refresh;
+  body.querySelectorAll("[data-relight]").forEach((b) => (b.onclick = () => {
+    const ns = selectedNow();
+    if (!ns.length) return toast("info", "Select nodes on the canvas first", "Then press ◎ to make this step light them up.");
+    keepScroll(() => {
+      collect();
+      const st = t.steps[Number(b.dataset.relight)];
+      st.nodes = ns.map((n) => n.id);
+      st.groups = [];
+      delete st.group;
+    });
+    toast("success", `Step ${Number(b.dataset.relight) + 1} now lights up ${ns.length} node${ns.length === 1 ? "" : "s"}`);
+  }));
   body.querySelector('[data-ns="add"]').onclick = () => {
-    const target = body.querySelector('[data-ns="target"]').value;
+    const target = targetSel.value;
     if (!target) return toast("info", "Pick what the step lights up", "A group, or select nodes on the canvas first.");
     const pos = Number(body.querySelector('[data-ns="pos"]').value);
     let step;
     if (target === "sel") {
-      const ns = picked.map((id) => app.graph.getNodeById(Number(id)) || app.graph.getNodeById(id)).filter(Boolean);
+      const ns = selectedNow();
+      if (!ns.length) return toast("info", "Select nodes on the canvas first");
       step = { title: ns.length === 1 ? core.nodeLabel(ns[0]) : "New step", text: "", nodes: ns.map((n) => n.id), settings: [] };
     } else {
       const gi = Number(target.split("|")[1]);
