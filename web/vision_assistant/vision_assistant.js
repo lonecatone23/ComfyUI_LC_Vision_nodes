@@ -10,6 +10,7 @@ import { HELP_HTML, HELP_CSS } from "./va_help.js";
 import * as tour from "./va_tour.js";
 import * as movie from "./va_movie.js";
 import * as batch from "./va_batch.js";
+import * as models from "./va_models.js";
 
 let usedChat = false; // unload the chat model when a run starts, so it never takes VRAM from the render
 
@@ -599,6 +600,10 @@ function applySnap(s, library, picks) {
     `${r.changed} change${r.changed === 1 ? "" : "s"}.` + (sk ? ` ${sk} skipped: ${r.skipped.slice(0, 3).join("; ")}${sk > 3 ? "…" : ""}` : ""));
   ui.view = "list";
   render();
+  models.check(s).then((diff) => {
+    if (diff.length) toast("warn", "A model file changed since this snapshot",
+      diff.map((d) => `${d.name.split(/[\\/]/).pop()} has the same name but ${d.why}.`).join(" ") + " The results may not match what the snapshot made.");
+  }).catch(() => {});
 }
 
 // ------------------------------------------------------------------ save view
@@ -674,6 +679,7 @@ function renderSave(body) {
       if (old >= 0) list[old] = snap; else list.push(snap);
       core.saveWorkflowSnaps(list);
       applied.set(wfKey(), name);
+      models.stamp(snap, () => core.saveWorkflowSnaps(list)).catch(() => {});
     } else {
       try {
         const list = await core.loadLibrary();
@@ -681,6 +687,7 @@ function renderSave(body) {
         if (old >= 0) list[old] = snap; else list.push(snap);
         await core.saveLibrary(list);
         ui.lib = list;
+        models.stamp(snap, () => core.saveLibrary(list)).catch(() => {});
       } catch (e) {
         sv.error = e.message;
         return render();
@@ -845,6 +852,7 @@ function renderChat(body) {
       <div class="va-actions">${c.nodeId != null && check.nodeById(c.nodeId) ? `<button class="va-btn" data-a="show" title="Jump to the node">Show node</button>` : ""}
         ${(c.actions || []).map((a, j) => `<button class="va-btn${a.run && a.run !== "dismiss" ? " pri" : ""}" data-a="${j}" title="${esc(a.tip || "")}">${ui.busy === `${i}:${j}` ? "Working…" : esc(a.label)}${a.href ? " ↗" : ""}</button>`).join("")}</div>
     </div>`).join("") : `<div class="va-hint">✅ Nothing wrong that I can see: every node is installed, every file is here, and the text encoder matches the model.</div>`) : ""}
+    <div data-models></div>
     <div class="va-chat">
       ${msgs.length ? msgs.map((m, i) => msgHtml(m, i)).join("") : `<div class="va-hint">Ask about this workflow in plain words. I can explain it, find problems and change settings, and I always ask before I change or run anything.</div>
         <div class="va-chips">${["What's wrong with this workflow?", "Explain this workflow", "How do I make it faster?", ...(authorKnown() ? ["About the author"] : [])].map((s) => `<button class="va-chip" data-q="${esc(s)}">${esc(s)}</button>`).join("")}</div>`}
@@ -868,6 +876,7 @@ function renderChat(body) {
     ui.cardsOpen = !open;
     render();
   };
+  models.mount(body.querySelector("[data-models]"), { toast });
   body.querySelector('[data-c="recheck"]').onclick = async () => {
     ui.busy = "check";
     ui.cardsOpen = true;

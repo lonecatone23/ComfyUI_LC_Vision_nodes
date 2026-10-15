@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **Civitai:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.3.3 · **5 Python nodes** + the **Vision Assistant** sidebar
+- **Version:** 1.4.0 · **8 Python nodes** + the **Vision Assistant** sidebar
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -109,6 +109,17 @@ Moviemaker's big brother for long videos: it plans a chain of short segments tha
 
 ---
 
+## LC Vision Shot List 📋
+
+The story for the Director, filled in like a form instead of written from scratch. No AI involved.
+
+- **The place**, **the cast** (name, man / woman, look) and **one row per shot**: framing, camera move, action, who speaks and the line.
+- It writes the story the way the Director reads it best: the place, the cast by name, "Cut to ..." for every new shot and at most one short line per shot.
+- **segments:** a suggested segment count. One per shot, more where a line or the action needs the time. Plug it into the Director's segments.
+- **warnings:** what to fix, like a line too long for its shot or a speaker who is not in the cast. Empty when it all looks good.
+
+---
+
 ## LC Vision Redirect 🔬
 
 Sits between the Director and LC H3 Segment. Before a CONTINUE segment is made, it looks at how the previous segment **really** ended and rewrites the start of the next one to match.
@@ -151,6 +162,11 @@ A sidebar tab (the LC logo on the left) that reads the open workflow for you. Wo
 - **Movie:** shows up when a workflow has the LC H3 Segment node. Every segment of the project with a thumbnail and a player, plus face, join and color checks in plain words with a fix button (**Redo segment N**, **Make all remaining**). **Ask about this movie** opens Chat with the numbers already typed in.
 - **Batch snapshot:** a look at the run before it starts. A single image always goes straight through. Run only stops to ask when it looks like a mistake: more than 16 images, several runs on a fixed seed, a big upscale on many images. It says which of those settings you changed since opening the workflow. The Snapshots tab shows what the next Run makes. Off in **LC Settings ⚙️ > Vision**.
 - **Snapshots and Library:** save the settings you changed (models, LoRAs, steps, bypasses) and put them back in one click. Prompts, seeds and input images stay out unless you tick them.
+    - A snapshot remembers each model file's size and hash. Applying it later warns when a file has the same name but is not the same model any more.
+- **Models in this workflow** (under the checkup): every model file the workflow uses, ✅ here or ❌ missing, its size and which node uses it.
+    - **Find on CivitAI** finds the exact page by the file's hash. **Search CivitAI** looks up a missing file by name (check it is the right one).
+    - **📌 Save download links** keeps the exact pages in the workflow, so whoever opens it can download anything they are missing.
+    - CivitAI is only contacted when you press a button, and it only gets the hash, never the file.
 - **VRAM:** none until you ask the chat something. **Auto** picks the model for your card (8B Q8 on 20 GB+, down to 4B Q4 on 8 GB, CPU chat on smaller cards) and unloads it a minute after the last answer, or the moment you hit Run.
 - **Settings:** **LC Settings ⚙️ > Vision** (works without LC123): Assistant on/off, chat model (Auto / Off / a model), default n_ctx for new Loaders, and the model list with a Download button.
 - 💡 Hit **?** in the panel for the full help.

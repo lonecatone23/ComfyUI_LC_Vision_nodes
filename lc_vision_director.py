@@ -265,6 +265,42 @@ _LABEL_START = re.compile(r"[ \t]*\b(Place|Holding|Sound|Camera)\s*:\s*", re.I)
 _SOUND_TAIL = re.compile(r"(no music|nobody speaks|the only voice|no voices|no dialogue|no other)", re.I)
 
 
+def _sentences(text: str) -> list:
+    """Split at sentence ends outside quotes, so a line of dialogue ("Hey. Look at me.") stays in one piece."""
+    out, cur, depth = [], "", False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        cur += ch
+        if ch in "\u201c\u201d\"":
+            depth = ch == "\u201c" or (ch == '"' and not depth)
+        closed = ch in "”\"" and not depth and len(cur) > 1 and cur[-2] in ".!?"  # 'me." He nods'
+        if (ch in ".!?" or closed) and not depth:
+            m = re.match(r"\s+(?=[A-Z\u201c\"])", text[i + 1:])
+            if m:
+                out.append(cur.strip())
+                cur = ""
+                i += len(m.group(0))
+        i += 1
+    if cur.strip():
+        out.append(cur.strip())
+    return out
+
+
+def _camera_split(rest: str):
+    """A Camera line says where the camera is. When the model put the action or a line of dialogue on it ("slow
+    push-in as Claire says: ..."), the camera part stays and the rest goes to the action."""
+    q = re.search(r"[\u201c\"]", rest)
+    if not q:
+        return rest, ""
+    head = rest[:q.start()]
+    m = list(re.finditer(r"\s+(?:as|while|when)\s+", head))
+    cut = m[-1] if m else None
+    if not cut:
+        return rest, ""
+    return rest[:cut.start()].rstrip(" ,;:") + ".", rest[cut.end():].strip()
+
+
 def _label_lines(text: str) -> str:
     """Place / Holding / Sound each on their own line and the action as its own paragraph, even when the model
     wrote a whole segment on one line. Otherwise "Place: same as before" (which replaces its whole line) replaced
@@ -277,7 +313,10 @@ def _label_lines(text: str) -> str:
             action.append(line)
             continue
         label, rest = m.group(1), m.group(2).strip()
-        sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z\u201c\"])", rest)
+        moved = ""
+        if label == "Camera":
+            rest, moved = _camera_split(rest)
+        sentences = _sentences(rest) or [rest]
         keep = [sentences[0]]
         for sent in sentences[1:]:
             if label == "Sound" and _SOUND_TAIL.match(sent) and len(keep) == len(sentences[:len(keep)]):
@@ -285,11 +324,42 @@ def _label_lines(text: str) -> str:
             else:
                 break
         out.append(f"{label}: {' '.join(keep).strip()}")
-        leftover = " ".join(sentences[len(keep):]).strip()
+        leftover = " ".join(sentences[len(keep):] + ([moved[:1].upper() + moved[1:]] if moved else [])).strip()
         if leftover:
             action.append(leftover)
     body = "\n".join(x for x in action if x.strip()).strip()
+    if not body:  # the whole action went on the Camera line ("pushing in as Claire takes his hand"): move it down
+        for k, ln in enumerate(out):
+            m = re.match(r"Camera: (.*?),?\s+(?:as|while|when)\s+((?:[A-Z][a-z]+|he|she|they|his|her|their)\b.*)$", ln)
+            if m:
+                out[k] = f"Camera: {m.group(1).rstrip(' ,;')}."
+                body = m.group(2)[:1].upper() + m.group(2)[1:]
+                break
     return ("\n".join(out) + ("\n\n" + body if body else "")).strip() if out else text.strip()
+
+
+def _timed(text: str, start: float, span: float) -> str:
+    """A segment whose action has no "At X.XX seconds" beats (the model wrote plain sentences): spread its sentences
+    over the segment, from start (0, or the overlap on a CONTINUE) to near the end."""
+    t = _label_lines(text)
+    head, body = (t.split("\n\n", 1) + [""])[:2] if "\n\n" in t else (t, "")
+    if not body.strip() or re.search(r"\bat \d+(?:\.\d+)? seconds", body, re.I):
+        return text
+    parts = [x.strip() for x in _sentences(body) for x in re.split(r";\s+(?=[^\u201d\"]*(?:[\u201c\"]|$))", x) if x.strip()]
+    step = max(0.5, (span - 0.6 - start) / max(1, len(parts)))
+    beats = []
+    for k, x in enumerate(parts):
+        if x.split()[0] in ("He", "She", "They", "The", "A", "An", "His", "Her", "Their", "It", "Both"):  # names keep their capital
+            x = x[:1].lower() + x[1:]
+        x = x.rstrip(" ;") + ("" if x.rstrip().endswith((".", "!", "?", "\u201d", '"')) else ".")
+        beats.append(f"At {start + k * step:.2f} seconds, {x}")
+    return head + "\n\n" + " ".join(beats)
+
+
+def _action_of(text: str) -> str:
+    """The timed action of a segment: everything after the Place / Holding / Sound / Camera lines."""
+    t = _label_lines(text)
+    return t.split("\n\n", 1)[1] if "\n\n" in t else ("" if re.match(r"\s*(place|holding|sound|camera)\s*:", t, re.I) else t)
 
 
 def _norm(text: str) -> str:
@@ -325,7 +395,8 @@ def _issues(style: str, shots: list, seg_s: float, new_s: float, story: str = ""
                 out.append(f"segment {i}'s line is too long for {span:.2f} seconds; shorten it")
     for i in range(len(shots) - 1):
         # compare without the "at X.XX seconds" scaffolding, which every segment shares
-        a, b = (re.sub(r"at \d+(?:\.\d+)? seconds,?", "", s["action"]) for s in shots[i:i + 2])
+        # and without the four label lines, which neighbours share on purpose
+        a, b = (re.sub(r"at \d+(?:\.\d+)? seconds,?", "", _action_of(s["action"]), flags=re.I) for s in shots[i:i + 2])
         if a.strip() and b.strip() and difflib.SequenceMatcher(None, a, b).ratio() > 0.6:
             out.append(f"segment {i + 2} repeats segment {i + 1}'s action instead of moving forward")
     return out
@@ -561,7 +632,8 @@ class LCVisionDirector:
             # a CONTINUE segment's first overlap_s is the held tail: its local clock starts after it,
             # and on the final video it starts overlap_s before the previous segment ends
             cont = s["mode"] == "CONTINUE"
-            action = _fit_clock(s["action"], new_s if cont else seg_s)
+            action = _timed(s["action"], 0.0, new_s if cont else seg_s)  # plain sentences get their beats
+            action = _fit_clock(action, new_s if cont else seg_s)
             action = _shift_timestamps(action, overlap_s) if cont else action
             start = end - overlap_s if cont else end
             end = start + seg_s
