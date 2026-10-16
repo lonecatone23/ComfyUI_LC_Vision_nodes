@@ -29,7 +29,7 @@ from .lc_vision_loader import LCVisionModel, MODEL_TYPE, strip_thinking
 from .lc_vision_moviemaker import _timestamps
 
 NODE_ID = "LCVisionRedirect"
-NODE_DISPLAY_NAME = "LC Vision Redirect 🔬"
+NODE_DISPLAY_NAME = "LC Vision Redirect (BETA) 🔬"
 
 # two calls: a small vision model describes well but rewrites lazily when it also has to look,
 # so it first only looks, then rewrites from its own sentence as a text task

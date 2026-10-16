@@ -4,6 +4,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { REPLACEMENTS } from "./va_replacements.js";
+import * as swap from "./va_swap.js";
 import { highlight } from "./va_glow.js";
 import { findDamage, repair } from "./va_corrupt.js";
 
@@ -67,7 +68,7 @@ export async function system(refresh = false) {
     const s = await (await api.fetchApi("/system_stats")).json();
     const d = (s.devices || []).find((x) => x.type !== "cpu") || (s.devices || [])[0] || {};
     const name = String(d.name || "").replace(/^cuda:\d+\s*/, "").replace(/\s*:\s*cudaMallocAsync$/, "");
-    SYS = { gpu: name || "unknown GPU", vram: (d.vram_total || 0) / 1024 ** 3, gen: gpuGen(name), comfy: s.system?.comfyui_version };
+    SYS = { gpu: name || "unknown GPU", vram: (d.vram_total || 0) / 1024 ** 3, ram: (s.system?.ram_total || 0) / 1024 ** 3, gen: gpuGen(name), comfy: s.system?.comfyui_version };
   } catch (_) {
     SYS = { gpu: "unknown GPU", vram: 0, gen: "other" };
   }
@@ -221,7 +222,10 @@ export async function checkModelFormat() {
   if (!sys.vram) return cards;
   const prof = await report();
   const prefer = preferFor(sys, prof);
-  const fits = (gb) => gb && gb <= sys.vram * 0.9;
+  // Bigger than the card is normal: ComfyUI streams the weights from RAM (H3 and LTX files are bigger than most cards
+  // and run fine). What really crawls is a file that doesn't fit in RAM either, so Windows pages it to disk.
+  const roomInRam = sys.ram ? sys.ram - 8 : 0; // leave room for the text encoder, VAE and Windows
+  const pages = (gb) => !!(gb && roomInRam && gb > roomInRam);
   const q = !!LiteGraph.registered_node_types?.LCModelQuantize;
   for (const { node, file, fam, there } of await modelLoaders()) {
     if (!fam || !file || there === false) continue;
@@ -232,21 +236,26 @@ export async function checkModelFormat() {
     const gb = curV?.gb || (full ? Math.round(full * SIZE(cur) * 10) / 10 : 0);
     const bad = NEEDS.find(([rx, gens]) => rx.test(cur) && !gens.includes(sys.gen));
     const wasteful = cur === "fp32";
-    const tooBig = gb && !fits(gb);
+    const tooBig = pages(gb);
     if (!bad && !wasteful && !tooBig) continue;
     // the same model in a format that suits this card: a stock sibling when it is a stock file, else a quant of this file
-    const pickFmt = prefer.find((f) => QUANT_LABEL[f] && !NEEDS.some(([rx, gens]) => rx.test(f) && !gens.includes(sys.gen)) && (!full || fits(full * SIZE(f)))) || "gguf_q4_k_m";
-    const sib = curV && vs.find((v) => (v.format === pickFmt || v.format.startsWith(pickFmt)) && fits(v.gb));
+    const ok = (g) => (tooBig ? !pages(g) : true); // a too-big file needs a copy that fits in RAM
+    const pickFmt = prefer.find((f) => QUANT_LABEL[f] && !NEEDS.some(([rx, gens]) => rx.test(f) && !gens.includes(sys.gen)) && (!full || ok(full * SIZE(f)))) || "gguf_q4_k_m";
+    // a known file of the same model that runs here: best format first (the report's order), then the smaller file
+    const rank = (f) => { const i = prefer.findIndex((p) => f === p || f.startsWith(p)); return i < 0 ? 99 : i; };
+    const runs = (v) => v.file.toLowerCase() !== base(file).toLowerCase() && ok(v.gb) && !NEEDS.some(([rx, gens]) => rx.test(v.format) && !gens.includes(sys.gen))
+      && (bad ? v.format !== cur : true) && (wasteful ? v.format !== "fp32" : true);
+    const sib = curV && vs.filter(runs).sort((x, y) => rank(x.format) - rank(y.format) || (x.gb || 0) - (y.gb || 0))[0];
     const why = bad ? `It's ${FMT_NAME(cur)}, which ${bad[2]}.`
       : wasteful ? `It's fp32: twice the size of bf16 with no better pictures.`
-      : `It's about ${gb} GB and your ${sys.gpu} has ${Math.round(sys.vram)} GB, so ComfyUI has to swap it in and out and it runs much slower.`;
+      : `It's about ${gb} GB, more than your ${Math.round(sys.ram)} GB of RAM can hold next to everything else, so Windows pages it to disk and it runs very slowly.`;
     const have = sib && onDisk(node, sib.file);
     cards.push({
-      level: bad || gb > sys.vram * 1.5 ? 3 : 1,
-      title: bad ? `${base(file)} won't run well on your card` : wasteful ? `${base(file)} is bigger than it needs to be` : `${base(file)} is too big for your card`,
+      level: bad || tooBig ? 3 : 1,
+      title: bad ? `${base(file)} won't run well on your card` : wasteful ? `${base(file)} is bigger than it needs to be` : `${base(file)} is too big for your RAM`,
       text: `${label(node)} loads ${base(file)}. ${why} `
-        + (sib ? `The same model as ${FMT_NAME(sib.format)} (${sib.file}${sib.gb ? `, ${sib.gb} GB` : ""}) suits your card.`
-          : `A ${FMT_NAME(pickFmt)} copy of the same file suits your card${full ? ` (about ${Math.round(full * SIZE(pickFmt))} GB)` : ""}. LC Model Quantize makes it${q ? "" : " (LC ModelBuilder pack)"}${/^(bf16|fp16|fp32)$/.test(cur) ? "" : " from the bf16 file"}.`),
+        + (sib ? `The same model as ${FMT_NAME(sib.format)} (${sib.file}${sib.gb ? `, ${sib.gb} GB` : ""}) ${tooBig ? "fits in your RAM" : "suits your card"}.`
+          : `A ${FMT_NAME(pickFmt)} copy of the same file ${tooBig ? "fits in your RAM" : "suits your card"}${full ? ` (about ${Math.round(full * SIZE(pickFmt))} GB)` : ""}. LC Model Quantize makes it${q ? "" : " (LC ModelBuilder pack)"}${/^(bf16|fp16|fp32)$/.test(cur) ? "" : " from the bf16 file"}.`),
       nodeId: where(node),
       actions: sib ? (have ? [{ label: "Use it", tip: "You already have it: switch the loader to this file", run: { set: [node, "unet_name", have] } }]
           : sib.repo ? [{ label: "Get it", tip: `Opens ${sib.repo} on Hugging Face`, href: `https://huggingface.co/${sib.repo}/tree/main` }] : [])
@@ -461,6 +470,27 @@ export function checkBrokenNodes() {
     });
   }
   return cards;
+}
+
+// ------------------------------------------------------------------ swap for LC nodes (first card in the checkup)
+export function checkSwaps() {
+  const groups = swap.find().filter((g) => g.nodes.length);
+  if (!groups.length) return [];
+  const count = groups.reduce((k, g) => k + g.nodes.length, 0);
+  const nodes = groups.flatMap((g) => g.nodes);
+  return [{
+    level: 1,
+    title: `Swap for LC nodes: ${count} node${count === 1 ? "" : "s"}`,
+    text: "These nodes from other packs have an LC node that does the same job. Tick the ones to swap: settings and wires carry over, and the LC node takes its place. Undo is on the Snapshots tab.",
+    swap: groups.map((g) => ({ from: g.sw.from, to: [...g.targets].map(swap.titleOf).join(" / "), count: g.nodes.length, drops: [...g.drops], blocked: g.blocked.length, why: g.blocked[0]?.why || "" })),
+    nodeId: where(nodes[0]),
+    nodeIds: [...new Set(nodes.map(where))],
+    actions: [{ label: "Swap ticked", tip: "Replaces every ticked node with its LC twin, keeping settings and wires", run: { swap: true } }],
+  }];
+}
+
+export function swapTypes(types) {
+  return swap.swapTypes(types);
 }
 
 // ------------------------------------------------------------------ errors in plain words
@@ -921,7 +951,7 @@ export async function symptomReport(question) {
 
 export async function checkAll() {
   const out = [];
-  for (const f of [checkErrors, checkCorruption, checkBrokenNodes, checkMissingFiles, checkClipType, checkStepsModel, checkCommon, checkModelFormat, checkOptimization]) {
+  for (const f of [checkSwaps, checkErrors, checkCorruption, checkBrokenNodes, checkMissingFiles, checkClipType, checkStepsModel, checkCommon, checkModelFormat, checkOptimization]) {
     try {
       out.push(...(await f()));
     } catch (e) {

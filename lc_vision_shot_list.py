@@ -122,6 +122,7 @@ def build(data: dict):
         warn.append("Add the cast: a name and man / woman for each person. The names keep faces and voices apart across cuts.")
     seen = []
     segments = 0
+    where_now = ""
     for i, s in enumerate(shots, start=1):
         frame = _framing(s, cast)
         key = (s.get("framing"), s.get("subject"))
@@ -131,7 +132,18 @@ def build(data: dict):
             back = key in seen[:-1] and key != seen[-1]
             head = f"Cut {'back ' if back else ''}to {frame}." if frame else "Cut to the next shot."
         seen.append(key)
-        bits = [head, MOVES.get(s.get("move") or "still", ""), _sentence(s.get("action"))]
+        bits = [head]
+        # references (LC H3 Reference Assembler): the setting, said when it changes, and the props in this shot, by the
+        # names on the Assembler, so the Segment sends exactly those pictures
+        where = str(s.get("where") or "").strip()
+        if where and where != where_now:
+            bits.append(f"This shot is at {where}.")
+            where_now = where
+        props = [str(x).strip() for x in (s.get("props") or []) if str(x).strip()]
+        if props:
+            named = [x if re.match(r"(?i)(the|a|an)\s", x) else "the " + x for x in props]
+            bits.append("In this shot: " + (named[0] if len(named) == 1 else ", ".join(named[:-1]) + " and " + named[-1]) + ".")
+        bits += [MOVES.get(s.get("move") or "still", ""), _sentence(s.get("action"))]
         line = re.sub(r"\s+", " ", str(s.get("line") or "")).strip().strip('"“”')
         speaker = str(s.get("speaker") or "").strip()
         if line:
@@ -192,4 +204,4 @@ class LCVisionShotList:
 
 
 NODE_CLASS_MAPPINGS = {"LCVisionShotList": LCVisionShotList}
-NODE_DISPLAY_NAME_MAPPINGS = {"LCVisionShotList": "LC Vision Shot List 📋"}
+NODE_DISPLAY_NAME_MAPPINGS = {"LCVisionShotList": "LC Vision Shot List (BETA) 📋"}

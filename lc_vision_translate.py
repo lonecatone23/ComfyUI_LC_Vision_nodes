@@ -6,7 +6,9 @@ these routes, this loads an LC Vision GGUF model text-only (no mmproj), translat
 the markdown, and unloads it again so it never sits in VRAM between clicks.
 
   GET  /lc_vision/translate/status  -> {"available": bool, "models": [...], "default": str}
-  POST /lc_vision/translate         {"text", "target", "model"?, "title"?} -> {"text", "title"} | {"error"}
+  POST /lc_vision/translate         {"text", "target", "model"?, "title"?, "task"?} -> {"text", "title"} | {"error"}
+                                    task "spelling": fix typos only, same language
+  POST /lc_vision/write_note        {"workflow", "model"?} -> {"text"} | {"error"}   (a first draft of a workflow note)
 
 Code blocks, inline code, URLs and HTML tags are swapped for placeholders before
 the model sees the text and swapped back after, so the markdown survives.
@@ -102,6 +104,102 @@ def _run(llm, system: str, text: str, target: str, name: str, what: str) -> str:
     raise RuntimeError("The model kept changing links, code or numbers in the note. Try again, or shorten the note.")
 
 
+def _llm(requested_model):
+    from llama_cpp import Llama
+
+    name, path = _pick_model(requested_model)
+    if not path:
+        raise RuntimeError(
+            "No LC Vision model found. Run an LC Vision Loader once to download one, "
+            "or put a Qwen-VL .gguf (with its mmproj) in models/LLM/GGUF."
+        )
+    try:
+        import torch
+
+        gpu = -1 if torch.cuda.is_available() else 0
+    except Exception:
+        gpu = 0
+    qwen3 = "qwen3" in (gguf_architecture(path) or "").lower()
+    return Llama(model_path=path, n_ctx=16384, n_gpu_layers=gpu, verbose=False), name, qwen3
+
+
+def _free(llm):
+    del llm
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+def _spelling(text: str, requested_model: str | None, title: str | None = None):
+    """Typos and spelling only: same words, same language, same markdown. Returns (text, title)."""
+    llm, name, qwen3 = _llm(requested_model)
+    system = (
+        "You are a careful proofreader. Fix spelling mistakes and typos in the user's Markdown document, and "
+        "nothing else: keep the same words, wording, tone, language and Markdown structure (headings, lists, "
+        "tables, bold, italics, line breaks, emoji). Copy every placeholder like ⟦3⟧ exactly as it is. Do not "
+        "change ComfyUI node names, setting names, file names, model names or numbers. Do not add or remove "
+        "anything. Output only the corrected Markdown." + (" /no_think" if qwen3 else "")
+    )
+    try:
+        out = _run(llm, system, text, "the same language", name, "spelling")
+        out_title = None
+        if title and title.strip():
+            try:
+                out_title = _run(llm, system, title.strip(), "the same language", name, "title spelling").splitlines()[0].strip() or None
+            except Exception:
+                out_title = None
+        return out, out_title
+    finally:
+        _free(llm)
+
+
+# the user's own workflow-note conventions (their writing style profile)
+_NOTE_STYLE = (
+    "Write it the way this author writes workflow notes:\n"
+    "- Start with a heading line: '### 🛑🚫✋ Read this first' and two or three short bullets on what to set up before the first run.\n"
+    "- Then each part of the workflow as a bold name line (e.g. **Load the models**) followed by flat bullets: what it does and what to change. No nested bullets.\n"
+    "- Bold the key node names and settings inside bullets. Short, plain sentences. Explain why, not just what.\n"
+    "- Model files: name each file and its folder. Show folders as a small tree in a code block, like:\n"
+    "  ```\n  ComfyUI/\n  └── models/\n      └── loras/\n  ```\n"
+    "- Use 💡 only for a tip and ⚠️ for a warning. Never use the em dash character; use a period, comma or colon.\n"
+    "- No closing summary sentence: the note ends on its last part, followed by ---.\n"
+    "- Only describe what is in the workflow description. Never invent nodes, models, links or settings.\n"
+    "- Put a model file in a folder only when the description gives its folder. Never guess a folder."
+)
+
+
+def _tidy_note(md: str) -> str:
+    """House rules the model doesn't always keep: no em dash, flat bullets, one closing rule."""
+    md = re.sub(r"\s*—\s*", ": ", md)
+    md = re.sub(r"(?m)^[ \t]+([-*] )", r"- ", md)  # nested bullets -> flat
+    md = re.sub(r"(?:\n---\s*){2,}$", "\n---", md.rstrip())
+    return md.strip()
+
+
+def _write_note(workflow: str, requested_model: str | None):
+    llm, name, qwen3 = _llm(requested_model)
+    system = ("You write the setup note that ships inside a ComfyUI workflow, in English Markdown, for people who just "
+              "downloaded the workflow. " + _NOTE_STYLE + (" /no_think" if qwen3 else ""))
+    try:
+        r = llm.create_chat_completion(
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": "The workflow, part by part:\n\n" + workflow[:12000]}],
+            max_tokens=2500, temperature=0.4, top_p=0.9, repeat_penalty=1.05,
+        )
+        out = _tidy_note(_clean((r["choices"][0]["message"].get("content") or "").strip()))
+        if not out:
+            raise RuntimeError("The model returned nothing. Try again.")
+        print(f"[LC Vision] wrote a workflow note with {name}")
+        return out
+    finally:
+        _free(llm)
+
+
 def _translate(text: str, target: str, requested_model: str | None, title: str | None = None):
     """Returns (text, title). The title is best effort: None if it could not be translated."""
     from llama_cpp import Llama
@@ -182,10 +280,30 @@ try:
         if not _LOCK.acquire(blocking=False):
             return web.json_response({"error": "Another translation is still running."}, status=409)
         try:
-            out, title = await asyncio.get_running_loop().run_in_executor(
-                None, _translate, text, target, data.get("model"), data.get("title")
-            )
+            if data.get("task") == "spelling":
+                out, title = await asyncio.get_running_loop().run_in_executor(None, _spelling, text, data.get("model"), data.get("title"))
+            else:
+                out, title = await asyncio.get_running_loop().run_in_executor(
+                    None, _translate, text, target, data.get("model"), data.get("title")
+                )
             return web.json_response({"text": out, "title": title})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+        finally:
+            _LOCK.release()
+    @PromptServer.instance.routes.post("/lc_vision/write_note")
+    async def _write_note_route(request):
+        import asyncio
+
+        data = await request.json()
+        wf = data.get("workflow") or ""
+        if not wf.strip():
+            return web.json_response({"error": "This workflow has nothing to describe yet."}, status=400)
+        if not _LOCK.acquire(blocking=False):
+            return web.json_response({"error": "LC Vision is busy with another note. Try again in a moment."}, status=409)
+        try:
+            out = await asyncio.get_running_loop().run_in_executor(None, _write_note, wf, data.get("model"))
+            return web.json_response({"text": out})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
         finally:

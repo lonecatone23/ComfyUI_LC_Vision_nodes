@@ -257,6 +257,9 @@ def strip_thinking(text: str) -> str:
     block inside the prompt, so its reply can be 'reasoning </think> answer' with no opening tag. An unclosed
     <think> means the answer never came (cut off mid-thought): nothing usable is left."""
     text = _THINK_BLOCK.sub("", text or "")
+    if "<channel|>" in text:  # Gemma 4: reasoning, then <channel|>, then the answer
+        text = text.rsplit("<channel|>", 1)[1]
+    text = re.sub(r"(?s)<\|channel>.*?(<channel\|>|$)", "", text)
     if "</think>" in text:
         text = text.rsplit("</think>", 1)[1]
     if re.search(r"(?i)<think>", text):
@@ -430,10 +433,25 @@ def build_llama(params: LCVisionBuildParams) -> tuple[Any, Any]:
             "A projector only fits its own model size (Qwen3-VL 4B = 2560, 8B = 4096, Qwen3.5 9B = 4096). Put the mmproj from the same "
             "download next to the model; keeping each model in its own folder under models/LLM makes the pairing certain."
         )
+    handler_kw = {}
+    arch = (gguf_architecture(params.model_path) or "").lower()
+    if arch.startswith("gemma4"):  # Gemma 4 (E2B / E4B / 12B): its own chat format, thinking off for captions
+        try:
+            from llama_cpp.llama_chat_format import Gemma4ChatHandler as handler_cls
+            handler_kw["enable_thinking"] = False
+        except ImportError:
+            raise RuntimeError("[LC Vision] This llama_cpp has no Gemma 4 support. Update the pack (install.py) and restart ComfyUI.")
+    # Gemma 4 sees an image as at most 280 tokens (its own budgets: 70 / 140 / 280); asking for more fails to load
+    cap = 280 if arch.startswith("gemma4") else None
+    min_tok = min(params.image_min_tokens, cap) if cap else params.image_min_tokens
+    max_tok = params.image_max_tokens
+    if cap and (max_tok < 0 or max_tok > cap):
+        max_tok = cap
     chat_handler = handler_cls(
+        **handler_kw,
         mmproj_path=params.mmproj_path,
-        image_min_tokens=params.image_min_tokens,
-        image_max_tokens=params.image_max_tokens,
+        image_min_tokens=min_tok,
+        image_max_tokens=max_tok,
         batch_max_tokens=params.batch_max_tokens,
         verbose=params.verbose,
     )

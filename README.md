@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **Civitai:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.4.0 · **8 Python nodes** + the **Vision Assistant** sidebar
+- **Version:** 1.4.1 · **8 Python nodes** + the **Vision Assistant** sidebar
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -96,7 +96,7 @@ Plans a video as N independently-generated segments in **one** LLM call, not N c
 
 ---
 
-## LC Vision Director 🎬
+## LC Vision Director (BETA) 🎬
 
 Moviemaker's big brother for long videos: it plans a chain of short segments that pick up from each other, made one per Run by the LC H3 Segment nodes (LC AV, coming next).
 
@@ -109,7 +109,7 @@ Moviemaker's big brother for long videos: it plans a chain of short segments tha
 
 ---
 
-## LC Vision Shot List 📋
+## LC Vision Shot List (BETA) 📋
 
 The story for the Director, filled in like a form instead of written from scratch. No AI involved.
 
@@ -120,7 +120,7 @@ The story for the Director, filled in like a form instead of written from scratc
 
 ---
 
-## LC Vision Redirect 🔬
+## LC Vision Redirect (BETA) 🔬
 
 Sits between the Director and LC H3 Segment. Before a CONTINUE segment is made, it looks at how the previous segment **really** ended and rewrites the start of the next one to match.
 
@@ -147,6 +147,7 @@ LC Vision is also the translator behind **LC Note 📝** (in LC123). There's no 
 A sidebar tab (the LC logo on the left) that reads the open workflow for you. Works on **any** workflow.
 
 - **Checkup:** runs by itself on every workflow: missing packs (one card per pack), missing models with download links, files in a subfolder (one-click fix), the wrong text encoder, model formats your card can't run well, placeholder files, damaged wiring (one-click repair) and your last error in plain words. No model, no VRAM.
+    - 💡 **Swap for LC nodes** comes first: nodes from other packs that have an LC twin doing the same job (rgthree Seed, pysssss ShowText, KJNodes JoinStrings / Image Batch Multi / Get Image Size, Comfyroll and WAS text nodes, Pixaroma's Seed, Text, Text Join, Show Text and Compare, etc.). **Note Pixaroma becomes an LC Note**: headings, bold, lists, tables and code carry over, download buttons become LC Note download buttons with their 📂 Place in line, YouTube and Discord buttons become link cards. That one works even when Pixaroma isn't installed. Tick the ones to swap: settings and wires carry over and the LC node takes its place. A node only shows when every wired socket has a match. Undo is on the Snapshots tab. Needs the LC pack that has the twin.
 - **Chat:** ask about the workflow in plain words ("What's broken?", "Can you fix it?", "Where do I put my image?"). Select a node first and ask "how does this work?" to have it explained.
     - 🛑 It never changes anything without asking: every change gets **Yes, do it / No**, with **Undo**.
     - "Where is...?" makes the nodes glow and zooms to them.
@@ -158,6 +159,7 @@ A sidebar tab (the LC logo on the left) that reads the open workflow for you. Wo
         - 💡 To mark a node outside the step, select it on the canvas first. Its settings show at the top under **Selected on the canvas**.
         - **Add a step** (at the bottom): pick what it lights up (any group, or the nodes you selected on the canvas) and where it goes (at the end or after step N), then **+ Add step**.
         - **↑ ↓** move a step, **×** removes it.
+        - **LC Model Optimizer model/clip/vae ⚙️**: showcase your own files. Paste a Hugging Face file link for the model, text encoder or VAE and it shows at the top of the LC Model Optimizer's ★ Recommended list for everyone who opens the workflow (it downloads on their first run). Other links are shown to them to get it. Blank = the defaults. Needs LC123.
         - **Save** locks the tour again. Save the workflow to keep it.
 - **Movie:** shows up when a workflow has the LC H3 Segment node. Every segment of the project with a thumbnail and a player, plus face, join and color checks in plain words with a fix button (**Redo segment N**, **Make all remaining**). **Ask about this movie** opens Chat with the numbers already typed in.
 - **Batch snapshot:** a look at the run before it starts. A single image always goes straight through. Run only stops to ask when it looks like a mistake: more than 16 images, several runs on a fixed seed, a big upscale on many images. It says which of those settings you changed since opening the workflow. The Snapshots tab shows what the next Run makes. Off in **LC Settings ⚙️ > Vision**.

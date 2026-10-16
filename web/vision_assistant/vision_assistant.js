@@ -217,7 +217,15 @@ function renderSnapshots(body) {
   body.querySelector('[data-act="save"]').onclick = () => openSave();
   const ub = body.querySelector('[data-act="undo"]');
   if (ub) ub.onclick = () => {
-    core.restore(u.state);
+    if (u.graph) {
+      // a swap removed and added nodes: put the whole workflow back as it was
+      const g = app.rootGraph || app.graph;
+      g.configure(JSON.parse(u.graph));
+      g.setDirtyCanvas?.(true, true);
+      try {
+        app.extensionManager?.workflow?.activeWorkflow?.changeTracker?.checkState?.();
+      } catch (_) {}
+    } else core.restore(u.state);
     undo.delete(k);
     applied.delete(k);
     resetBaseline("undo");
@@ -312,6 +320,7 @@ function wireTours(body) {
 }
 
 const MAX_TOUR_SETTINGS = 8;
+const OPT_ROLES = [["model", "Model"], ["clip", "Text encoder"], ["vae", "VAE"]];
 
 function renderTourEdit(body) {
   const t = ui.tourEdit;
@@ -379,6 +388,12 @@ function renderTourEdit(body) {
       </select>
       <button class="va-btn" data-ns="add">+ Add step</button>
     </div>
+    <div class="va-group" style="margin-top:12px">LC Model Optimizer model/clip/vae ⚙️</div>
+    <div class="va-hint">Showcase your own files: they show at the top of the LC Model Optimizer's ★ Recommended list for everyone who opens this workflow. Paste a Hugging Face file link and it downloads on their first run (any other link is shown to them to get it). Leave one blank and it uses the defaults.</div>
+    ${OPT_ROLES.map(([role, label]) => `<div style="display:flex;gap:6px;align-items:center;margin-top:4px">
+      <span class="va-sub" style="width:92px;flex:none">${label}</span>
+      <input class="va-input" style="flex:2;min-width:0" data-opt="${role}" data-k="url" value="${esc(t.optimizer?.[role]?.url || "")}" placeholder="https://huggingface.co/you/repo/blob/main/file.safetensors">
+      <input class="va-input" style="flex:1;min-width:0" data-opt="${role}" data-k="file" value="${esc(t.optimizer?.[role]?.file || "")}" placeholder="file name (optional)" title="Only needed when the link isn't a Hugging Face file link"></div>`).join("")}
     <div class="va-actions" style="margin-top:8px"><button class="va-btn pri" data-te="save">Save tour</button><button class="va-btn" data-te="cancel">Cancel</button></div>`;
   body.querySelectorAll("input, textarea, select").forEach((el) => (el.onkeydown = (e) => e.stopPropagation()));
   // copy what's typed into the tour before anything redraws the editor
@@ -389,6 +404,13 @@ function renderTourEdit(body) {
       const [i, k] = el.dataset.set.split("|").map(Number);
       if (t.steps[i]?.settings[k]) t.steps[i].settings[k].why = el.value.trim();
     });
+    const opt = {};
+    body.querySelectorAll("[data-opt]").forEach((el) => {
+      const v = el.value.trim();
+      if (v) (opt[el.dataset.opt] = opt[el.dataset.opt] || {})[el.dataset.k] = v;
+    });
+    if (Object.keys(opt).length) t.optimizer = opt;
+    else delete t.optimizer;
   };
   const keepScroll = (fn) => {
     const top = body.scrollTop;
@@ -849,6 +871,8 @@ function renderChat(body) {
     ${open ? (cards.length ? cards.map((c, i) => `<div class="va-card l${c.level}" data-k="${i}">
       <div class="va-name">${c.level === 3 ? "⚠️ " : c.level === 1 ? "💡 " : ""}${esc(c.title)}</div>
       <div class="va-hint">${esc(c.text)}</div>
+      ${c.swap ? `<div style="margin:6px 0">${c.swap.map((x) => `<label style="display:flex;gap:6px;align-items:flex-start;margin:3px 0;cursor:pointer"><input type="checkbox" data-sw="${esc(x.from)}" checked style="margin-top:3px">
+        <span><b>${esc(x.from)}</b> → ${esc(x.to)}${x.count > 1 ? ` ×${x.count}` : ""}${x.drops.length ? `<br><span class="va-sub">drops: ${esc(x.drops.join(", "))} (no LC equivalent)</span>` : ""}${x.blocked ? `<br><span class="va-sub">${x.blocked} more can't swap: ${esc(x.why || "a wired socket has no match")}</span>` : ""}</span></label>`).join("")}</div>` : ""}
       <div class="va-actions">${c.nodeId != null && check.nodeById(c.nodeId) ? `<button class="va-btn" data-a="show" title="Jump to the node">Show node</button>` : ""}
         ${(c.actions || []).map((a, j) => `<button class="va-btn${a.run && a.run !== "dismiss" ? " pri" : ""}" data-a="${j}" title="${esc(a.tip || "")}">${ui.busy === `${i}:${j}` ? "Working…" : esc(a.label)}${a.href ? " ↗" : ""}</button>`).join("")}</div>
     </div>`).join("") : `<div class="va-hint">✅ Nothing wrong that I can see: every node is installed, every file is here, and the text encoder matches the model.</div>`) : ""}
@@ -1201,6 +1225,16 @@ async function cardAction(c, which, busyKey) {
     if (!ok) return toast("error", "Couldn't change it", "The node or setting is gone. Check again.");
     undo.set(wfKey(), { state: before, name: c.title });
     toast("success", "Changed", `${c.title}: done. Undo is on the Snapshots tab.`);
+    return refreshCards(true);
+  }
+  if (a.run?.swap) {
+    const types = [...(ui.el?.querySelectorAll(`.va-card[data-k="${busyKey.split(":")[0]}"] [data-sw]`) || [])].filter((x) => x.checked).map((x) => x.dataset.sw);
+    if (!types.length) return toast("info", "Nothing ticked", "Tick the nodes to swap first.");
+    const before = JSON.stringify((app.rootGraph || app.graph).serialize());
+    const n = check.swapTypes(types);
+    if (!n) return toast("error", "Nothing swapped", "The nodes changed since the checkup. Check again.");
+    undo.set(wfKey(), { graph: before, name: "the LC node swap" });
+    toast("success", `Swapped ${n} node${n === 1 ? "" : "s"} for LC nodes`, "Settings and wires carried over. Undo is on the Snapshots tab. Save the workflow to keep it.");
     return refreshCards(true);
   }
   if (a.run?.repair) {

@@ -37,7 +37,7 @@ from .lc_vision_moviemaker import CUSTOM_PRESET_LABEL, FALLBACK_PRESET, _META_LE
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_content
 
 NODE_ID = "LCVisionDirector"
-NODE_DISPLAY_NAME = "LC Vision Director 🎬"
+NODE_DISPLAY_NAME = "LC Vision Director (BETA) 🎬"
 
 PLAN_TYPE = "LC_H3_PLAN"
 MAX_SEGMENTS = 60

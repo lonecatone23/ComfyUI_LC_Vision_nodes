@@ -31,6 +31,9 @@ const CSS = `
 .lcsl-wc{font-size:11px;color:#888;white-space:nowrap;min-width:52px;text-align:right}
 .lcsl-wc.long{color:#e77;font-weight:700}
 .lcsl-tip{font-size:11px;color:#999}
+.lcsl-chip{display:inline-flex;align-items:center;gap:3px;border:1px solid #444;border-radius:10px;padding:1px 7px;cursor:pointer;font-size:11px;color:#bbb;background:#1e1e1e;user-select:none}
+.lcsl-chip.on{border-color:#eb4;color:#eb4;background:#3a3220}
+.lcsl-refs{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
 `;
 
 function ensureStyle() {
@@ -102,6 +105,14 @@ function ensureFace(node) {
   wrap.appendChild(inner);
   // typing in the form must not trigger ComfyUI's shortcuts (Delete, Ctrl+Z on the canvas, etc.)
   wrap.addEventListener("keydown", (e) => e.stopPropagation());
+  // names on a Reference Assembler may have changed: refresh the pickers when the pointer comes back
+  wrap.addEventListener("mouseenter", () => {
+    const key = JSON.stringify(refNames(node));
+    if (key !== node.__lcslRefKey) {
+      node.__lcslRefKey = key;
+      if (!wrap.contains(document.activeElement)) render(node);
+    }
+  });
   const dom = node.addDOMWidget("lc_shot_list_face", "LC_SHOT_LIST_FACE", wrap, { getMinHeight: () => height(node), serialize: false });
   dom.serializeValue = () => undefined;
   node.__lcsl = { wrap, inner };
@@ -116,10 +127,34 @@ function opts(list, value, labels = {}) {
   return list.map((v) => `<option value="${esc(v)}"${v === value ? " selected" : ""}>${esc(labels[v] ?? v)}</option>`).join("");
 }
 
+/** {cast, settings, props} named on the LC H3 Reference Assemblers in this graph. */
+function refNames(node) {
+  const out = { cast: new Set(), settings: new Set(), props: new Set() };
+  const graphs = [node.graph, app.graph, app.rootGraph].filter(Boolean);
+  for (const g of new Set(graphs)) {
+    for (const n of g._nodes || []) {
+      if (n.type !== "LCH3ReferenceAssembler") continue;
+      try {
+        for (const it of JSON.parse(n.widgets?.find((w) => w.name === "references")?.value || "{}").items || []) {
+          const nm = String(it.name || "").trim();
+          if (!nm) continue;
+          if (String(it.role || "").startsWith("cast")) out.cast.add(nm);
+          else if (it.role === "setting") out.settings.add(nm);
+          else if (it.role === "prop") out.props.add(nm);
+        }
+      } catch (_) {}
+    }
+  }
+  return { cast: [...out.cast], settings: [...out.settings], props: [...out.props] };
+}
+
 function render(node) {
   const face = ensureFace(node);
   const d = getData(node);
   const names = d.cast.map((c) => String(c.name || "").trim()).filter(Boolean);
+  const R = refNames(node);
+  const hasRefs = R.settings.length || R.props.length;
+  const missing = R.cast.filter((n) => !names.includes(n));
   const subjectOpts = (s) => opts(["everyone", ...names], names.includes(s.subject) ? s.subject : "everyone", { everyone: names.length > 1 ? "everyone" : "—" });
   face.inner.innerHTML = `
     <div class="lcsl-h"><span>📍 Place</span></div>
@@ -131,6 +166,7 @@ function render(node) {
         <input data-c="${i}" data-f="look" value="${esc(c.look)}" placeholder="in his forties with short dark hair and a navy sweater" style="flex:1">
         <button class="lcsl-b" data-del-c="${i}" title="Remove this person">×</button></div>`).join("")}
     <button class="lcsl-b lcsl-add" data-add="cast">➕ Add person</button>
+    ${missing.length ? `<div class="lcsl-row lcsl-tip">🖼️ Reference pictures but not in the cast: ${missing.map((n) => `<button class="lcsl-b" data-add-ref="${esc(n)}" title="Add ${esc(n)} to the cast">➕ ${esc(n)}</button>`).join(" ")}</div>` : ""}
     <input data-k="setup" value="${esc(d.setup)}" placeholder="What they are doing together, e.g. sit across from each other" title="Finishes the cast sentence">
     <div class="lcsl-h"><span>🎬 Shots</span><span class="lcsl-tip" style="flex:0;white-space:nowrap;font-weight:400">one short line per shot</span></div>
     ${d.shots.map((s, i) => {
@@ -154,6 +190,10 @@ function render(node) {
           <span class="lcsl-wc${wc > LONG_LINE ? " long" : ""}" data-wc="${i}">${wc ? `${wc} words` : ""}</span>
         </div>
         <input data-s="${i}" data-f="after" value="${esc(s.after)}" placeholder="What happens after the line (optional)">
+        ${hasRefs ? `<div class="lcsl-refs">
+          ${R.settings.length ? `<span class="lcsl-tip">📍</span><select data-s="${i}" data-f="where" title="Where this shot is (a setting from the Reference Assembler). Said in the story when it changes.">${opts(["", ...R.settings], s.where || "", { "": i ? "same place" : "setting…" })}</select>` : ""}
+          ${R.props.map((pr) => `<span class="lcsl-chip${(s.props || []).includes(pr) ? " on" : ""}" data-prop="${i}|${esc(pr)}" title="In this shot: the Segment sends this prop's picture">${esc(pr)}</span>`).join("")}
+        </div>` : ""}
       </div>`;
     }).join("")}
     <button class="lcsl-b lcsl-add" data-add="shot">➕ Add shot</button>`;
@@ -215,6 +255,18 @@ function render(node) {
     const [i, dir] = b.dataset.mv.split("|").map(Number);
     const [s] = d.shots.splice(i, 1);
     d.shots.splice(i + dir, 0, s);
+    save(true);
+  }));
+  q("[data-prop]").forEach((c) => (c.onclick = () => {
+    const [i, ...rest] = c.dataset.prop.split("|");
+    const pr = rest.join("|");
+    const sh = d.shots[Number(i)];
+    sh.props = Array.isArray(sh.props) ? sh.props : [];
+    sh.props = sh.props.includes(pr) ? sh.props.filter((x) => x !== pr) : [...sh.props, pr];
+    save(true);
+  }));
+  q("[data-add-ref]").forEach((b) => (b.onclick = () => {
+    d.cast.push({ name: b.dataset.addRef, who: "woman", look: "" });
     save(true);
   }));
   q("[data-add]").forEach((b) => (b.onclick = () => {
