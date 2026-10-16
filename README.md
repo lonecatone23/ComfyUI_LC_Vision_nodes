@@ -58,6 +58,16 @@ Handle + prompt + references → text.
 - **`style_tag`** (shared with Prompt Enhancer): pushes the response toward a specific visual style regardless of what the reference actually looks like. `None / Realistic / Anime / Cartoon / Cinematic / Hentai / Fantasy / B&W / Noir / Cyberpunk / Illustration / NSFW`.
 - **Self-heals on the upstream decode bug.** Resets context first, and if that specific `llama_decode failed` error still surfaces, rebuilds the model from the Loader's own parameters and retries once, automatically. Any other error is not swallowed.
 
+## LC Vision Reviewer 🕵️ (BETA)
+
+A quality gate for finished renders. Asks the vision model yes/no questions and passes the image on with **passed** and a **report**.
+
+- Checks: **hands**, **faces**, **text** (signs spelled right), **artifacts**, plus a **prompt** match when you wire the positive prompt in.
+- **custom_checks**: your own, one per line, written so yes = good (e.g. Is she wearing a parka?).
+- **on_fail**: **flag** (default) always passes the image on. **block** stops everything wired after it (the save, the upscaler, etc.).
+- A batch of more than 4 frames is read as a video: a few frames across the clip are checked together.
+- ⚠️ A vision model is a shortlist, not a judge. It misses things. Trust your eye over it.
+
 ## LC Vision Prompt Enhancer 📝
 
 Text-only rewrite pass over the same model handle. A vision model is still a perfectly good text-only LLM when nothing gets attached to the message.

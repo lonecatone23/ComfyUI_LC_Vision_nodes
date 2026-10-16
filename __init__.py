@@ -45,6 +45,7 @@ def _load(module_name: str) -> None:
 
 _load("lc_vision_loader")
 _load("lc_vision_caption")
+_load("lc_vision_reviewer")
 _load("lc_vision_prompt_enhancer")
 _load("lc_vision_moviemaker")
 _load("lc_vision_director")
