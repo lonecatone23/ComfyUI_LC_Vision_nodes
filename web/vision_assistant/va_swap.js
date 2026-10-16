@@ -41,8 +41,7 @@ export const SWAPS = [
     names: { ...Object.fromEntries(Array.from({ length: n }, (_, i) => [`text_${i + 1}`, `string_${i + 1}`])), text: "string" },
     set: (old) => ({ inputcount: n, delimiter: pixSep(pixState(old, "textJoinState")) }),
   })),
-  // Note Pixaroma (rich HTML) -> LC Note (markdown). Works with or without Pixaroma installed: the HTML sits in note_json.
-  { from: "PixaromaNote", to: "LCNote", frontend: true, missingOk: true, convert: pixNoteToLC },
+  // Note Pixaroma -> LC Note lives in NOTE_SWAPS (its own checkup card, with every other note type)
   { from: "PixaromaCompare", to: "LCBatchImageComparer", names: { image1: "image_a", image2: "image_b" }, missingOk: true },
 ];
 
@@ -225,7 +224,7 @@ export function swapNode(old, base) {
 /** Swap every node of the ticked types. Returns how many were swapped. */
 export function swapTypes(types) {
   let done = 0;
-  for (const grp of find()) {
+  for (const grp of [...find(), ...findNotes()]) {
     if (!types.includes(grp.sw.from)) continue;
     for (const n of grp.nodes) if (swapNode(n, grp.sw)) done++;
   }
@@ -328,16 +327,85 @@ function pixNoteToLC(old) {
   } catch (_) {
     cfg = { content: String(raw) };
   }
-  const md = pixHtmlToMarkdown(cfg.content || "");
+  const md = linkify(pixHtmlToMarkdown(cfg.content || ""));
   const title = old.title && old.title !== "Note Pixaroma" && old.title !== old.constructor?.title ? old.title : "";
+  return lcNoteFrom(old, md, title);
+}
+
+// ------------------------------------------------------------------ any note -> LC Note
+// Core Note (plain text), Markdown Note, Pixaroma's note and any other note node: the text, title, colours and place
+// carry over. Plain text keeps its line breaks, and every bare web address becomes a real link.
+
+/** The text an unknown note node holds: its first text setting. null when it holds none. */
+export function noteText(node) {
+  const w = (node.widgets || []).find((x) => typeof x.value === "string" && x.type !== "combo" && !/language|lang$/i.test(x.name || ""));
+  if (w) return w.value;
+  const v = (node.widgets_values || []).find((x) => typeof x === "string");
+  return typeof v === "string" ? v : null;
+}
+
+/** Bare web addresses -> markdown links. Leaves existing links, <autolinks> and `code` alone. */
+export function linkify(md) {
+  const keep = /(\[[^\]]*\]\([^)]*\)|`[^`]*`|<https?:[^>\s]+>|@\[[^\]]*\]\([^)]*\))/g;
+  const url = /(^|[\s(])(https?:\/\/[^\s<>()[\]]*[^\s<>()[\].,;:!?'"])/g;
+  return String(md || "").split(keep).map((part, i) => (i % 2 ? part : part.replace(url, (_, pre, u) => `${pre}[${u}](${u})`))).join("");
+}
+
+/** Plain note text -> markdown: line breaks kept (a single newline would be merged into one line), links made real. */
+export function plainToMarkdown(text) {
+  const t = String(text || "").replace(/\r\n?/g, "\n").replace(/[ \t]+$/gm, "");
+  return linkify(t).replace(/([^\n])\n(?=[^\n])/g, "$1  \n").trim();
+}
+
+function lcNoteFrom(old, md, title) {
+  const look = { color: old.color, bgcolor: old.bgcolor, collapsed: !!old.flags?.collapsed };
   return {
     apply(fresh) {
       const d = fresh.properties?.lc_note;
-      if (d?.texts) {
-        d.texts[d.source] = { ...(d.texts[d.source] || {}), text: md };
-      }
+      if (d?.texts) d.texts[d.source] = { ...(d.texts[d.source] || {}), text: md };
       if (fresh._lcText) fresh._lcText.value = md;
       if (title) fresh.title = title;
+      if (look.color) fresh.color = look.color;
+      if (look.bgcolor) fresh.bgcolor = look.bgcolor;
+      if (look.collapsed) fresh.flags = { ...(fresh.flags || {}), collapsed: true };
     },
   };
+}
+
+const ownTitle = (old, ...defaults) => (old.title && ![old.type, old.constructor?.title, titleOf(old.type), ...defaults].includes(old.title) ? old.title : "");
+
+function plainNoteToLC(old) {
+  return lcNoteFrom(old, plainToMarkdown(noteText(old)), ownTitle(old, "Note"));
+}
+
+function markdownNoteToLC(old) {
+  return lcNoteFrom(old, linkify(String(noteText(old) || "").replace(/\r\n?/g, "\n")).trim(), ownTitle(old, "Markdown Note"));
+}
+
+export const NOTE_SWAPS = [
+  { from: "Note", to: "LCNote", frontend: true, missingOk: true, note: true, convert: plainNoteToLC },
+  { from: "MarkdownNote", to: "LCNote", frontend: true, missingOk: true, note: true, convert: markdownNoteToLC },
+  { from: "PixaromaNote", to: "LCNote", frontend: true, missingOk: true, note: true, convert: pixNoteToLC },
+];
+
+/** Any other node that is just a note: "note" in its name, holds text, and nothing is wired to it. */
+function noteLike(n) {
+  if (n.type === "LCNote" || !/note/i.test(`${n.type} ${n.constructor?.title || ""}`)) return false;
+  if ((n.inputs || []).some((i) => i.link != null) || (n.outputs || []).some((o) => o.links?.length)) return false;
+  return typeof noteText(n) === "string";
+}
+
+/** Every note in the workflow (subgraphs too) that can become an LC Note, grouped by type. */
+export function findNotes() {
+  if (!registered("LCNote")) return [];
+  const groups = new Map();
+  for (const g of allGraphs()) {
+    for (const n of g._nodes || []) {
+      const sw = NOTE_SWAPS.find((s) => s.from === n.type) || (noteLike(n) && { from: n.type, to: "LCNote", frontend: true, missingOk: true, note: true, convert: plainNoteToLC });
+      if (!sw) continue;
+      if (!groups.has(sw.from)) groups.set(sw.from, { sw, nodes: [], blocked: [], drops: new Set(), targets: new Set(["LCNote"]) });
+      groups.get(sw.from).nodes.push(n);
+    }
+  }
+  return [...groups.values()];
 }

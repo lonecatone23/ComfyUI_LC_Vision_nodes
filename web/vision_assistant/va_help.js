@@ -18,7 +18,8 @@ export const HELP_HTML = [
   S("🩺 Checkup", UL([
     "Sits at the top of the Chat tab and runs by itself. A <b>red dot</b> on the icon means it found a problem.",
     "It catches:<ul><li>missing packs (with the pack page)</li><li>missing models (with a download link or a search)</li><li>files sitting in a subfolder</li><li>the wrong text encoder</li><li>a model format your card can't run well</li><li>errors from the last run, in plain words</li></ul>",
-    "💡 <b>Swap for LC nodes</b> (first card): nodes from other packs with an LC twin. Tick them, press <b>Swap ticked</b>: settings and wires carry over. Pixaroma notes become LC Notes, readable markdown. Undo is on the Snapshots tab.",
+    "💡 <b>Swap for LC nodes</b> (first card): nodes from other packs with an LC twin. Tick them, press <b>Swap ticked</b>: settings and wires carry over. Undo is on the Snapshots tab.",
+    "📝 <b>Convert notes to LC Notes</b> (second card): core Notes, Markdown Notes and any other note node. Text, title, colours and line breaks carry over, and web addresses become real links. LC Notes translate and fix spelling. Undo is on the Snapshots tab.",
     "<b>Show node</b> makes the node glow. Fix buttons do the one-click fixes.",
     "Hit <b>Check again</b> after you install or download something.",
   ])),

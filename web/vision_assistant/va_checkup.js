@@ -493,6 +493,23 @@ export function swapTypes(types) {
   return swap.swapTypes(types);
 }
 
+/** Every note that isn't an LC Note yet (core Note, Markdown Note, any other note node). */
+export function checkNotes() {
+  const groups = swap.findNotes().filter((g) => g.nodes.length);
+  if (!groups.length) return [];
+  const count = groups.reduce((k, g) => k + g.nodes.length, 0);
+  const nodes = groups.flatMap((g) => g.nodes);
+  return [{
+    level: 1,
+    title: `Convert ${count} note${count === 1 ? "" : "s"} to LC Notes`,
+    text: "LC Notes do more than show text: they translate into your language, fix spelling, and every web address becomes a real link you can click (links on their own line become link cards). Tick the notes to convert: the text, title, colours and place carry over, line breaks too. Undo is on the Snapshots tab.",
+    swap: groups.map((g) => ({ from: swap.titleOf(g.sw.from), key: g.sw.from, to: "LC Note 📝", count: g.nodes.length, drops: [], blocked: 0, why: "" })),
+    nodeId: where(nodes[0]),
+    nodeIds: [...new Set(nodes.map(where))],
+    actions: [{ label: "Convert ticked", tip: "Turns every ticked note into an LC Note, keeping its text, title, colours and place", run: { swap: true, notes: true } }],
+  }];
+}
+
 // ------------------------------------------------------------------ errors in plain words
 const ERRORS = [
   [/out of memory|OutOfMemory|allocation on device/i, "Out of graphics memory (VRAM).",
@@ -951,7 +968,7 @@ export async function symptomReport(question) {
 
 export async function checkAll() {
   const out = [];
-  for (const f of [checkSwaps, checkErrors, checkCorruption, checkBrokenNodes, checkMissingFiles, checkClipType, checkStepsModel, checkCommon, checkModelFormat, checkOptimization]) {
+  for (const f of [checkSwaps, checkNotes, checkErrors, checkCorruption, checkBrokenNodes, checkMissingFiles, checkClipType, checkStepsModel, checkCommon, checkModelFormat, checkOptimization]) {
     try {
       out.push(...(await f()));
     } catch (e) {

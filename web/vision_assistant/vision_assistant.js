@@ -871,7 +871,7 @@ function renderChat(body) {
     ${open ? (cards.length ? cards.map((c, i) => `<div class="va-card l${c.level}" data-k="${i}">
       <div class="va-name">${c.level === 3 ? "⚠️ " : c.level === 1 ? "💡 " : ""}${esc(c.title)}</div>
       <div class="va-hint">${esc(c.text)}</div>
-      ${c.swap ? `<div style="margin:6px 0">${c.swap.map((x) => `<label style="display:flex;gap:6px;align-items:flex-start;margin:3px 0;cursor:pointer"><input type="checkbox" data-sw="${esc(x.from)}" checked style="margin-top:3px">
+      ${c.swap ? `<div style="margin:6px 0">${c.swap.map((x) => `<label style="display:flex;gap:6px;align-items:flex-start;margin:3px 0;cursor:pointer"><input type="checkbox" data-sw="${esc(x.key || x.from)}" checked style="margin-top:3px">
         <span><b>${esc(x.from)}</b> → ${esc(x.to)}${x.count > 1 ? ` ×${x.count}` : ""}${x.drops.length ? `<br><span class="va-sub">drops: ${esc(x.drops.join(", "))} (no LC equivalent)</span>` : ""}${x.blocked ? `<br><span class="va-sub">${x.blocked} more can't swap: ${esc(x.why || "a wired socket has no match")}</span>` : ""}</span></label>`).join("")}</div>` : ""}
       <div class="va-actions">${c.nodeId != null && check.nodeById(c.nodeId) ? `<button class="va-btn" data-a="show" title="Jump to the node">Show node</button>` : ""}
         ${(c.actions || []).map((a, j) => `<button class="va-btn${a.run && a.run !== "dismiss" ? " pri" : ""}" data-a="${j}" title="${esc(a.tip || "")}">${ui.busy === `${i}:${j}` ? "Working…" : esc(a.label)}${a.href ? " ↗" : ""}</button>`).join("")}</div>
@@ -1233,8 +1233,9 @@ async function cardAction(c, which, busyKey) {
     const before = JSON.stringify((app.rootGraph || app.graph).serialize());
     const n = check.swapTypes(types);
     if (!n) return toast("error", "Nothing swapped", "The nodes changed since the checkup. Check again.");
-    undo.set(wfKey(), { graph: before, name: "the LC node swap" });
-    toast("success", `Swapped ${n} node${n === 1 ? "" : "s"} for LC nodes`, "Settings and wires carried over. Undo is on the Snapshots tab. Save the workflow to keep it.");
+    undo.set(wfKey(), { graph: before, name: a.run.notes ? "the LC Note conversion" : "the LC node swap" });
+    if (a.run.notes) toast("success", `Converted ${n} note${n === 1 ? "" : "s"} to LC Notes`, "Text, titles and colours carried over. Undo is on the Snapshots tab. Save the workflow to keep it.");
+    else toast("success", `Swapped ${n} node${n === 1 ? "" : "s"} for LC nodes`, "Settings and wires carried over. Undo is on the Snapshots tab. Save the workflow to keep it.");
     return refreshCards(true);
   }
   if (a.run?.repair) {
