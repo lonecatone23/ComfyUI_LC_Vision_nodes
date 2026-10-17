@@ -74,6 +74,7 @@ Text-only rewrite pass over the same model handle. A vision model is still a per
 
 - **Presets live in `lc_vision_presets.json`**, not code. Ships with four original presets: `Enhance`, `Refine`, `Creative Rewrite`, `Detailed Visual`.
 - **`Custom` preset** sits at the top of the dropdown. Reads the system prompt straight from the `custom_system_prompt` socket instead of the JSON file, for full per-workflow control. A new node starts on `Enhance`, and an empty `custom_system_prompt` falls back to `Enhance` instead of erroring.
+- **`Character Anchor` preset** for character datasets: give it the reference picture(s) and a few notes ("blonde hair, fit") and it writes one short description of the person only (face, eyes, hair, skin, build). Never the clothing, pose, background or light, so every prompt in a list can set those. Its inputs don't change between rows, so it runs once per list.
 - **`style_tag`**, same shared list as Caption.
 - **Think-leak retry:** if the output looks like leftover planning text instead of the actual rewritten prompt, one retry asks explicitly for just the final text.
 
