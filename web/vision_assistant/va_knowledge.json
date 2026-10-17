@@ -21,63 +21,72 @@
       "format": "fp8",
       "gb": 2.42,
       "repo": "Bedovyy/Anima-FP8",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "community": true
      },
      {
       "file": "anima-base-v1.0-int8convrot.safetensors",
       "format": "int8_convrot",
       "gb": 2.47,
       "repo": "Bedovyy/Anima-INT8",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "community": true
      },
      {
       "file": "anima-base-v1.0-nvfp4mixed.safetensors",
       "format": "nvfp4",
       "gb": 2.01,
       "repo": "Bedovyy/Anima-FP8",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "community": true
      },
      {
       "file": "anima-base-v1.0-Q8_0.gguf",
       "format": "gguf_q8_0",
       "gb": 2.09,
       "repo": "Abiray/Anima-base-v1.0-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "anima-base-v1.0-Q6_K.gguf",
       "format": "gguf_q6_k",
       "gb": 1.62,
       "repo": "Abiray/Anima-base-v1.0-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "anima-base-v1.0-Q4_K_M.gguf",
       "format": "gguf_q4_k_m",
       "gb": 1.29,
       "repo": "Abiray/Anima-base-v1.0-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "anima-base-v1.0-mxfp8.safetensors",
       "format": "mxfp8",
       "gb": 2.48,
       "repo": "Bedovyy/Anima-FP8",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "community": true
      },
      {
       "file": "anima-base-v1.0-Q5_K_M.gguf",
       "format": "gguf_q5_k_m",
       "gb": 1.45,
       "repo": "Abiray/Anima-base-v1.0-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "anima-base-v1.0-Q3_K_M.gguf",
       "format": "gguf_q3_k_m",
       "gb": 0.95,
       "repo": "Abiray/Anima-base-v1.0-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      }
     ]
    },
@@ -120,63 +129,72 @@
       "format": "bf16",
       "gb": 16.91,
       "repo": "black-forest-labs/FLUX.2-klein-base-9B",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "note": "gated"
      },
      {
       "file": "flux-2-klein-base-9b-BF16.gguf",
       "format": "gguf_bf16",
       "gb": 16.91,
       "repo": "unsloth/FLUX.2-klein-base-9B-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "flux-2-klein-base-9b-fp8.safetensors",
       "format": "fp8",
       "gb": 8.91,
       "repo": "black-forest-labs/FLUX.2-klein-base-9b-fp8",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "note": "gated"
      },
      {
       "file": "flux-2-klein-base-9b-nvfp4.safetensors",
       "format": "nvfp4",
       "gb": 5.41,
       "repo": "black-forest-labs/FLUX.2-klein-base-9b-nvfp4",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "note": "gated"
      },
      {
       "file": "flux-2-klein-base-9b-Q8_0.gguf",
       "format": "gguf_q8_0",
       "gb": 9.29,
       "repo": "unsloth/FLUX.2-klein-base-9B-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "flux-2-klein-base-9b-Q6_K.gguf",
       "format": "gguf_q6_k",
       "gb": 7.33,
       "repo": "unsloth/FLUX.2-klein-base-9B-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "flux-2-klein-base-9b-Q5_K_M.gguf",
       "format": "gguf_q5_k_m",
       "gb": 6.54,
       "repo": "unsloth/FLUX.2-klein-base-9B-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "flux-2-klein-base-9b-Q4_K_M.gguf",
       "format": "gguf_q4_k_m",
       "gb": 5.5,
       "repo": "unsloth/FLUX.2-klein-base-9B-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "flux-2-klein-base-9b-Q3_K_M.gguf",
       "format": "gguf_q3_k_m",
       "gb": 4.44,
       "repo": "unsloth/FLUX.2-klein-base-9B-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      }
     ]
    },
@@ -209,7 +227,8 @@
       "format": "gguf_q4_k_m",
       "gb": 4.68,
       "repo": "unsloth/Qwen3-8B-GGUF",
-      "loader": "CLIPLoaderGGUF"
+      "loader": "CLIPLoaderGGUF",
+      "community": true
      }
     ],
     "clip_type": "flux2"
@@ -240,63 +259,72 @@
       "format": "bf16",
       "gb": 16.91,
       "repo": "black-forest-labs/FLUX.2-klein-9B",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "note": "gated"
      },
      {
       "file": "flux-2-klein-9b-BF16.gguf",
       "format": "gguf_bf16",
       "gb": 16.91,
       "repo": "unsloth/FLUX.2-klein-9B-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "flux-2-klein-9b-fp8.safetensors",
       "format": "fp8",
       "gb": 8.78,
       "repo": "black-forest-labs/FLUX.2-klein-9b-fp8",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "note": "gated"
      },
      {
       "file": "flux-2-klein-9b-nvfp4.safetensors",
       "format": "nvfp4",
       "gb": 5.36,
       "repo": "black-forest-labs/FLUX.2-klein-9b-nvfp4",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "note": "gated"
      },
      {
       "file": "flux-2-klein-9b-Q8_0.gguf",
       "format": "gguf_q8_0",
       "gb": 9.29,
       "repo": "unsloth/FLUX.2-klein-9B-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "flux-2-klein-9b-Q6_K.gguf",
       "format": "gguf_q6_k",
       "gb": 7.33,
       "repo": "unsloth/FLUX.2-klein-9B-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "flux-2-klein-9b-Q5_K_M.gguf",
       "format": "gguf_q5_k_m",
       "gb": 6.54,
       "repo": "unsloth/FLUX.2-klein-9B-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "flux-2-klein-9b-Q4_K_M.gguf",
       "format": "gguf_q4_k_m",
       "gb": 5.5,
       "repo": "unsloth/FLUX.2-klein-9B-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "flux-2-klein-9b-Q3_K_M.gguf",
       "format": "gguf_q3_k_m",
       "gb": 4.44,
       "repo": "unsloth/FLUX.2-klein-9B-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      }
     ]
    },
@@ -329,7 +357,8 @@
       "format": "gguf_q4_k_m",
       "gb": 4.68,
       "repo": "unsloth/Qwen3-8B-GGUF",
-      "loader": "CLIPLoaderGGUF"
+      "loader": "CLIPLoaderGGUF",
+      "community": true
      }
     ],
     "clip_type": "flux2"
@@ -348,6 +377,226 @@
    }
   },
   {
+   "id": "flux3_klein",
+   "name": "Flux 3 Klein (Distilled)",
+   "kind": "image",
+   "params_b": 5.6,
+   "diffusion": {
+    "label": "Image model",
+    "variants": [
+     {
+      "file": "flux3_image_klein_sd_bf16.safetensors",
+      "format": "bf16",
+      "gb": 11.1,
+      "repo": "black-forest-labs/flux-3-image-klein-comfy",
+      "loader": "UNETLoader",
+      "note": "gated"
+     },
+     {
+      "file": "flux3_image_klein_sd_int8_convrot.safetensors",
+      "format": "int8_convrot",
+      "gb": 5.83,
+      "repo": "black-forest-labs/flux-3-image-klein-comfy",
+      "loader": "UNETLoader",
+      "note": "gated"
+     },
+     {
+      "file": "flux3_image_klein_sd_nvfp4.safetensors",
+      "format": "nvfp4",
+      "gb": 5.28,
+      "repo": "black-forest-labs/flux-3-image-klein-comfy",
+      "loader": "UNETLoader",
+      "note": "gated"
+     },
+     {
+      "file": "flux-3-image-klein-Q8_0.gguf",
+      "format": "gguf_q8_0",
+      "gb": 6.09,
+      "repo": "unsloth/flux-3-image-klein-GGUF",
+      "loader": "UnetLoaderGGUF",
+      "community": true
+     },
+     {
+      "file": "flux-3-image-klein-Q6_K.gguf",
+      "format": "gguf_q6_k",
+      "gb": 4.8,
+      "repo": "unsloth/flux-3-image-klein-GGUF",
+      "loader": "UnetLoaderGGUF",
+      "community": true
+     },
+     {
+      "file": "flux-3-image-klein-Q5_K_M.gguf",
+      "format": "gguf_q5_k_m",
+      "gb": 4.22,
+      "repo": "unsloth/flux-3-image-klein-GGUF",
+      "loader": "UnetLoaderGGUF",
+      "community": true
+     },
+     {
+      "file": "flux-3-image-klein-Q4_K_M.gguf",
+      "format": "gguf_q4_k_m",
+      "gb": 3.67,
+      "repo": "unsloth/flux-3-image-klein-GGUF",
+      "loader": "UnetLoaderGGUF",
+      "community": true
+     },
+     {
+      "file": "flux-3-image-klein-Q3_K_M.gguf",
+      "format": "gguf_q3_k_m",
+      "gb": 3.01,
+      "repo": "unsloth/flux-3-image-klein-GGUF",
+      "loader": "UnetLoaderGGUF",
+      "community": true
+     }
+    ]
+   },
+   "text_encoder": {
+    "label": "Text encoder (Qwen3-VL-4B)",
+    "variants": [
+     {
+      "file": "qwen3vl_4b_bf16.safetensors",
+      "format": "bf16",
+      "gb": 8.88,
+      "repo": "black-forest-labs/flux-3-image-klein-comfy",
+      "loader": "CLIPLoader",
+      "note": "gated"
+     },
+     {
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "format": "int8_convrot",
+      "gb": 4.86,
+      "repo": "black-forest-labs/flux-3-image-klein-comfy",
+      "loader": "CLIPLoader",
+      "note": "gated"
+     }
+    ],
+    "clip_type": "flux3"
+   },
+   "vae": {
+    "label": "VAE",
+    "variants": [
+     {
+      "file": "flux2-vae.safetensors",
+      "format": "bf16",
+      "gb": 0.34,
+      "repo": "black-forest-labs/flux-3-image-klein-comfy",
+      "loader": "VAELoader",
+      "note": "gated"
+     }
+    ]
+   }
+  },
+  {
+   "id": "flux3_klein_base",
+   "name": "Flux 3 Klein (Base)",
+   "kind": "image",
+   "params_b": 5.6,
+   "diffusion": {
+    "label": "Image model",
+    "variants": [
+     {
+      "file": "flux3_image_klein_base_bf16.safetensors",
+      "format": "bf16",
+      "gb": 11.08,
+      "repo": "black-forest-labs/flux-3-image-klein-comfy",
+      "loader": "UNETLoader",
+      "note": "gated"
+     },
+     {
+      "file": "flux3_image_klein_base_int8_convrot.safetensors",
+      "format": "int8_convrot",
+      "gb": 5.81,
+      "repo": "black-forest-labs/flux-3-image-klein-comfy",
+      "loader": "UNETLoader",
+      "note": "gated"
+     },
+     {
+      "file": "flux3_image_klein_base_nvfp4.safetensors",
+      "format": "nvfp4",
+      "gb": 5.26,
+      "repo": "black-forest-labs/flux-3-image-klein-comfy",
+      "loader": "UNETLoader",
+      "note": "gated"
+     },
+     {
+      "file": "flux-3-image-klein-base-Q8_0.gguf",
+      "format": "gguf_q8_0",
+      "gb": 6.07,
+      "repo": "unsloth/flux-3-image-klein-base-GGUF",
+      "loader": "UnetLoaderGGUF",
+      "community": true
+     },
+     {
+      "file": "flux-3-image-klein-base-Q6_K.gguf",
+      "format": "gguf_q6_k",
+      "gb": 4.78,
+      "repo": "unsloth/flux-3-image-klein-base-GGUF",
+      "loader": "UnetLoaderGGUF",
+      "community": true
+     },
+     {
+      "file": "flux-3-image-klein-base-Q5_K_M.gguf",
+      "format": "gguf_q5_k_m",
+      "gb": 4.2,
+      "repo": "unsloth/flux-3-image-klein-base-GGUF",
+      "loader": "UnetLoaderGGUF",
+      "community": true
+     },
+     {
+      "file": "flux-3-image-klein-base-Q4_K_M.gguf",
+      "format": "gguf_q4_k_m",
+      "gb": 3.65,
+      "repo": "unsloth/flux-3-image-klein-base-GGUF",
+      "loader": "UnetLoaderGGUF",
+      "community": true
+     },
+     {
+      "file": "flux-3-image-klein-base-Q3_K_M.gguf",
+      "format": "gguf_q3_k_m",
+      "gb": 2.99,
+      "repo": "unsloth/flux-3-image-klein-base-GGUF",
+      "loader": "UnetLoaderGGUF",
+      "community": true
+     }
+    ]
+   },
+   "text_encoder": {
+    "label": "Text encoder (Qwen3-VL-4B)",
+    "variants": [
+     {
+      "file": "qwen3vl_4b_bf16.safetensors",
+      "format": "bf16",
+      "gb": 8.88,
+      "repo": "black-forest-labs/flux-3-image-klein-comfy",
+      "loader": "CLIPLoader",
+      "note": "gated"
+     },
+     {
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "format": "int8_convrot",
+      "gb": 4.86,
+      "repo": "black-forest-labs/flux-3-image-klein-comfy",
+      "loader": "CLIPLoader",
+      "note": "gated"
+     }
+    ],
+    "clip_type": "flux3"
+   },
+   "vae": {
+    "label": "VAE",
+    "variants": [
+     {
+      "file": "flux2-vae.safetensors",
+      "format": "bf16",
+      "gb": 0.34,
+      "repo": "black-forest-labs/flux-3-image-klein-comfy",
+      "loader": "VAELoader",
+      "note": "gated"
+     }
+    ]
+   }
+  },
+  {
    "id": "ideogram4",
    "name": "Ideogram 4",
    "kind": "image",
@@ -360,21 +609,24 @@
       "format": "fp8_scaled",
       "gb": 17.29,
       "repo": "Comfy-Org/Ideogram-4",
-      "loader": "UNETLoader x2"
+      "loader": "UNETLoader x2",
+      "note": "pair"
      },
      {
       "file": "ideogram4_int8_convrot.safetensors",
       "format": "int8_convrot",
       "gb": 17.84,
       "repo": "Comfy-Org/Ideogram-4",
-      "loader": "UNETLoader x2"
+      "loader": "UNETLoader x2",
+      "note": "pair"
      },
      {
       "file": "ideogram4_nvfp4_mixed.safetensors",
       "format": "nvfp4",
       "gb": 10.23,
       "repo": "Comfy-Org/Ideogram-4",
-      "loader": "UNETLoader x2"
+      "loader": "UNETLoader x2",
+      "note": "pair"
      }
     ]
    },
@@ -424,7 +676,8 @@
       "format": "fp16",
       "gb": 6.46,
       "repo": "OnomaAIResearch/Illustrious-XL-v1.0",
-      "loader": "CheckpointLoaderSimple"
+      "loader": "CheckpointLoaderSimple",
+      "note": "full checkpoint incl. text encoders and VAE"
      }
     ]
    }
@@ -477,42 +730,48 @@
       "format": "gguf_q8_0",
       "gb": 12.77,
       "repo": "vantagewithai/Krea-2-Turbo-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "krea2_turbo-Q6_K.gguf",
       "format": "gguf_q6_k",
       "gb": 9.85,
       "repo": "vantagewithai/Krea-2-Turbo-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "krea2_turbo-Q5_K_M.gguf",
       "format": "gguf_q5_k_m",
       "gb": 8.26,
       "repo": "vantagewithai/Krea-2-Turbo-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "krea2_turbo-Q4_K_M.gguf",
       "format": "gguf_q4_k_m",
       "gb": 6.98,
       "repo": "vantagewithai/Krea-2-Turbo-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "krea2_turbo-Q3_K_M.gguf",
       "format": "gguf_q3_k_m",
       "gb": 5.6,
       "repo": "vantagewithai/Krea-2-Turbo-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "krea2_turbo-Q2_K.gguf",
       "format": "gguf_q2_k",
       "gb": 4.55,
       "repo": "vantagewithai/Krea-2-Turbo-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      }
     ]
    },
@@ -532,13 +791,6 @@
       "gb": 4.88,
       "repo": "Comfy-Org/Krea-2",
       "loader": "CLIPLoader"
-     },
-     {
-      "file": "qwen3vl_4b-iq4_xs.gguf",
-      "format": "gguf_iq4_xs",
-      "gb": 2.89,
-      "repo": "gguf-org/krea-2-gguf",
-      "loader": "CLIPLoaderGGUF"
      }
     ],
     "clip_type": "krea2"
@@ -603,13 +855,6 @@
       "gb": 4.88,
       "repo": "Comfy-Org/Krea-2",
       "loader": "CLIPLoader"
-     },
-     {
-      "file": "qwen3vl_4b-iq4_xs.gguf",
-      "format": "gguf_iq4_xs",
-      "gb": 2.89,
-      "repo": "gguf-org/krea-2-gguf",
-      "loader": "CLIPLoaderGGUF"
      }
     ],
     "clip_type": "krea2"
@@ -640,14 +885,16 @@
       "format": "bf16",
       "gb": 42.98,
       "repo": "Lightricks/LTX-2.3",
-      "loader": "CheckpointLoaderSimple"
+      "loader": "CheckpointLoaderSimple",
+      "note": "full checkpoint incl. VAEs"
      },
      {
       "file": "ltx-2.3-22b-dev-fp8.safetensors",
       "format": "fp8",
       "gb": 27.15,
       "repo": "Lightricks/LTX-2.3-fp8",
-      "loader": "CheckpointLoaderSimple"
+      "loader": "CheckpointLoaderSimple",
+      "note": "full checkpoint incl. VAEs"
      },
      {
       "file": "ltx-2.3-22b-dev-nvfp4.safetensors",
@@ -661,28 +908,33 @@
       "format": "int8_convrot",
       "gb": 20.03,
       "repo": "Kijai/LTX2.3_comfy",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "note": "transformer only",
+      "community": true
      },
      {
       "file": "ltx-2.3-22b-dev-Q8_0.gguf",
       "format": "gguf_q8_0",
       "gb": 21.2,
       "repo": "unsloth/LTX-2.3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "ltx-2.3-22b-dev-Q4_K_M.gguf",
       "format": "gguf_q4_k_m",
       "gb": 13.35,
       "repo": "unsloth/LTX-2.3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "ltx-2.3-22b-dev-Q2_K.gguf",
       "format": "gguf_q2_k",
       "gb": 7.71,
       "repo": "unsloth/LTX-2.3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      }
     ]
    },
@@ -715,7 +967,8 @@
       "format": "gguf_q4_k_m",
       "gb": 6.8,
       "repo": "unsloth/gemma-3-12b-it-GGUF",
-      "loader": "CLIPLoaderGGUF"
+      "loader": "CLIPLoaderGGUF",
+      "community": true
      }
     ],
     "clip_type": "LTXAVTextEncoderLoader"
@@ -767,7 +1020,8 @@
       "format": "fp8",
       "gb": 19.59,
       "repo": "vonkaiser/LTX-2.5-FP8-NVFP4",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "community": true
      },
      {
       "file": "ltx-2.5-22b-distilled-transformer-nvfp4.safetensors",
@@ -781,42 +1035,48 @@
       "format": "gguf_q8_0",
       "gb": 21.98,
       "repo": "vantagewithai/LTX-2.5-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "ltx-2.5-22b-distilled-Q6_K.gguf",
       "format": "gguf_q6_k",
       "gb": 17.34,
       "repo": "vantagewithai/LTX-2.5-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "ltx-2.5-22b-distilled-Q5_K_M.gguf",
       "format": "gguf_q5_k_m",
       "gb": 16.88,
       "repo": "vantagewithai/LTX-2.5-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "ltx-2.5-22b-distilled-Q4_K_M.gguf",
       "format": "gguf_q4_k_m",
       "gb": 14.61,
       "repo": "vantagewithai/LTX-2.5-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "ltx-2.5-22b-distilled-Q3_K_M.gguf",
       "format": "gguf_q3_k_m",
       "gb": 12.03,
       "repo": "vantagewithai/LTX-2.5-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "LTX-2.5-distilled-Q2_K.gguf",
       "format": "gguf_q2_k",
       "gb": 8.22,
       "repo": "realrebelai/LTX-2.5_GGUFs",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      }
     ]
    },
@@ -842,14 +1102,8 @@
       "format": "nvfp4",
       "gb": 9.87,
       "repo": "Deadshot699/ltx-2.5-gemma4-12b-comfy-nvfp4",
-      "loader": "CLIPLoader"
-     },
-     {
-      "file": "gemma4-12b-with-proj-ltx-2.5-Q4_K_M.gguf",
-      "format": "gguf_q4_k_m",
-      "gb": 7.83,
-      "repo": "elix3r/gemma4-12b-with-proj-ltx-2.5-GGUF",
-      "loader": "CLIPLoaderGGUF"
+      "loader": "CLIPLoader",
+      "community": true
      }
     ],
     "clip_type": "ltxv"
@@ -901,7 +1155,8 @@
       "format": "bf16",
       "gb": 37.47,
       "repo": "Comfy-Org/MiniMax-H3",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "pruned": true
      },
      {
       "file": "minimax_h3_ref2va_int8_convrot.safetensors",
@@ -915,91 +1170,76 @@
       "format": "int8_convrot",
       "gb": 19.53,
       "repo": "Comfy-Org/MiniMax-H3",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "pruned": true
      },
      {
       "file": "minimax_h3_ref2va_pruned_fp8_scaled.safetensors",
       "format": "fp8_scaled",
       "gb": 19.52,
       "repo": "Comfy-Org/MiniMax-H3",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "note": "Comfy: only if int8_convrot cannot be used",
+      "pruned": true
      },
      {
       "file": "minimax_h3_ref2va_pruned_nvfp4.safetensors",
       "format": "nvfp4",
       "gb": 11.67,
       "repo": "coolthor/MiniMax-H3-pruned-NVFP4",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "community": true,
+      "pruned": true
      },
      {
       "file": "minimax_h3_ref2va_pruned_w4a8_mixed.safetensors",
       "format": "w4a8",
       "gb": 10.96,
       "repo": "Kijai/MiniMax-H3-experimental",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "note": "experimental",
+      "community": true,
+      "pruned": true
      },
      {
       "file": "MiniMax-H3-Ref2VA-Q8_0.gguf",
       "format": "gguf_q8_0",
       "gb": 33.56,
       "repo": "Abiray/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "MiniMax-H3-Ref2VA-Q6_K.gguf",
       "format": "gguf_q6_k",
       "gb": 26.28,
       "repo": "Abiray/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "MiniMax-H3-Ref2VA-Q5_K_M.gguf",
       "format": "gguf_q5_k_m",
       "gb": 22.25,
       "repo": "Abiray/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "MiniMax-H3-Ref2VA-Q4_K_M.gguf",
       "format": "gguf_q4_k_m",
       "gb": 18.5,
       "repo": "Abiray/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "MiniMax-H3-Ref2VA-Q3_K_M.gguf",
       "format": "gguf_q3_k_m",
       "gb": 14.5,
       "repo": "Abiray/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
-     },
-     {
-      "file": "minimax_h3_ref2va_pruned-Q8_0.gguf",
-      "format": "gguf_q8_0",
-      "gb": 19.94,
-      "repo": "unsloth/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
-     },
-     {
-      "file": "minimax_h3_ref2va_pruned-Q5_0.gguf",
-      "format": "gguf_q5_0",
-      "gb": 12.94,
-      "repo": "unsloth/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
-     },
-     {
-      "file": "minimax_h3_ref2va_pruned-Q4_K.gguf",
-      "format": "gguf_q4_k",
-      "gb": 10.6,
-      "repo": "unsloth/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
-     },
-     {
-      "file": "minimax_h3_ref2va_pruned-Q2_K.gguf",
-      "format": "gguf_q2_k",
-      "gb": 6.26,
-      "repo": "unsloth/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      }
     ]
    },
@@ -1025,28 +1265,32 @@
       "format": "w4a8",
       "gb": 15.35,
       "repo": "AX1Y2JP/MiniMax-H3-W4A8-ConvRot",
-      "loader": "CLIPLoader"
+      "loader": "CLIPLoader",
+      "community": true
      },
      {
       "file": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
       "format": "nvfp4",
       "gb": 14.61,
       "repo": "Comfy-Org/MiniMax-H3",
-      "loader": "CLIPLoader"
+      "loader": "CLIPLoader",
+      "note": "Comfy: does not need a Blackwell GPU"
      },
      {
       "file": "qwen3vl_32b_minimax_h3-Q4_K_M.gguf",
       "format": "gguf_q4_k_m",
       "gb": 13.58,
       "repo": "Abiray/MiniMax-H3-GGUF",
-      "loader": "CLIPLoaderGGUF"
+      "loader": "CLIPLoaderGGUF",
+      "community": true
      },
      {
       "file": "qwen3vl-32B-MiniMax-H3-Q2_K.gguf",
       "format": "gguf_q2_k",
       "gb": 7.91,
       "repo": "realrebelai/MiniMax-H3_GGUFs",
-      "loader": "CLIPLoaderGGUF"
+      "loader": "CLIPLoaderGGUF",
+      "community": true
      }
     ],
     "clip_type": "minimax"
@@ -1098,7 +1342,8 @@
       "format": "bf16",
       "gb": 37.47,
       "repo": "Comfy-Org/MiniMax-H3",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "pruned": true
      },
      {
       "file": "minimax_h3_fl2va_int8_convrot.safetensors",
@@ -1112,91 +1357,86 @@
       "format": "int8_convrot",
       "gb": 19.53,
       "repo": "Comfy-Org/MiniMax-H3",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "pruned": true
      },
      {
       "file": "minimax_h3_fl2va_pruned_fp8_scaled.safetensors",
       "format": "fp8_scaled",
       "gb": 19.52,
       "repo": "Comfy-Org/MiniMax-H3",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "note": "Comfy: only if int8_convrot cannot be used",
+      "pruned": true
      },
      {
       "file": "minimax_h3_fl2va_pruned_nvfp4.safetensors",
       "format": "nvfp4",
       "gb": 11.67,
       "repo": "coolthor/MiniMax-H3-pruned-NVFP4",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "community": true,
+      "pruned": true
      },
      {
       "file": "minimax_h3_fl2va_pruned_w4a8_mixed.safetensors",
       "format": "w4a8",
       "gb": 11.68,
       "repo": "Kijai/MiniMax-H3-experimental",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "note": "experimental",
+      "community": true,
+      "pruned": true
      },
      {
       "file": "MiniMax-H3-FL2VA-Q8_0.gguf",
       "format": "gguf_q8_0",
       "gb": 33.56,
       "repo": "Abiray/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "MiniMax-H3-FL2VA-Q6_K.gguf",
       "format": "gguf_q6_k",
       "gb": 26.28,
       "repo": "Abiray/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "MiniMax-H3-FL2VA-Q5_K_M.gguf",
       "format": "gguf_q5_k_m",
       "gb": 22.25,
       "repo": "Abiray/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "MiniMax-H3-FL2VA-Q4_K_M.gguf",
       "format": "gguf_q4_k_m",
       "gb": 18.5,
       "repo": "Abiray/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "MiniMax-H3-FL2VA-Q3_K_M.gguf",
       "format": "gguf_q3_k_m",
       "gb": 14.5,
       "repo": "Abiray/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
-     },
-     {
-      "file": "minimax_h3_fl2va_pruned-Q8_0.gguf",
-      "format": "gguf_q8_0",
-      "gb": 19.97,
-      "repo": "unsloth/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
-     },
-     {
-      "file": "minimax_h3_fl2va_pruned-Q5_0.gguf",
-      "format": "gguf_q5_0",
-      "gb": 12.96,
-      "repo": "unsloth/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "minimax_h3_fl2va_pruned-Q4_K.gguf",
       "format": "gguf_q4_k",
       "gb": 10.64,
       "repo": "unsloth/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
-     },
-     {
-      "file": "minimax_h3_fl2va_pruned-Q2_K.gguf",
-      "format": "gguf_q2_k",
-      "gb": 6.26,
-      "repo": "unsloth/MiniMax-H3-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "note": "Fast pick for 8 GB GPUs: 1.6x faster on an RTX 5060 Laptop, but visibly softer",
+      "community": true,
+      "pruned": true
      }
     ]
    },
@@ -1222,28 +1462,32 @@
       "format": "w4a8",
       "gb": 15.35,
       "repo": "AX1Y2JP/MiniMax-H3-W4A8-ConvRot",
-      "loader": "CLIPLoader"
+      "loader": "CLIPLoader",
+      "community": true
      },
      {
       "file": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
       "format": "nvfp4",
       "gb": 14.61,
       "repo": "Comfy-Org/MiniMax-H3",
-      "loader": "CLIPLoader"
+      "loader": "CLIPLoader",
+      "note": "Comfy: does not need a Blackwell GPU"
      },
      {
       "file": "qwen3vl_32b_minimax_h3-Q4_K_M.gguf",
       "format": "gguf_q4_k_m",
       "gb": 13.58,
       "repo": "Abiray/MiniMax-H3-GGUF",
-      "loader": "CLIPLoaderGGUF"
+      "loader": "CLIPLoaderGGUF",
+      "community": true
      },
      {
       "file": "qwen3vl-32B-MiniMax-H3-Q2_K.gguf",
       "format": "gguf_q2_k",
       "gb": 7.91,
       "repo": "realrebelai/MiniMax-H3_GGUFs",
-      "loader": "CLIPLoaderGGUF"
+      "loader": "CLIPLoaderGGUF",
+      "community": true
      }
     ],
     "clip_type": "minimax"
@@ -1288,7 +1532,9 @@
       "format": "fp16",
       "gb": 6.46,
       "repo": "LyliaEngine/Pony_Diffusion_V6_XL",
-      "loader": "CheckpointLoaderSimple"
+      "loader": "CheckpointLoaderSimple",
+      "note": "full checkpoint incl. text encoders and VAE",
+      "community": true
      }
     ]
    }
@@ -1320,35 +1566,40 @@
       "format": "gguf_q8_0",
       "gb": 7.07,
       "repo": "Abiray/Qwen-Image-2.1-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "qwen_image_2.1_Q6_K.gguf",
       "format": "gguf_q6_k",
       "gb": 5.48,
       "repo": "Abiray/Qwen-Image-2.1-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "qwen_image_2.1_Q5_K_M.gguf",
       "format": "gguf_q5_k_m",
       "gb": 4.67,
       "repo": "Abiray/Qwen-Image-2.1-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "qwen_image_2.1_Q4_K_M.gguf",
       "format": "gguf_q4_k_m",
       "gb": 3.9,
       "repo": "Abiray/Qwen-Image-2.1-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "qwen_image_2.1_Q3_K_M.gguf",
       "format": "gguf_q3_k_m",
       "gb": 2.97,
       "repo": "Abiray/Qwen-Image-2.1-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      }
     ]
    },
@@ -1405,7 +1656,8 @@
       "format": "fp16",
       "gb": 6.46,
       "repo": "stabilityai/stable-diffusion-xl-base-1.0",
-      "loader": "CheckpointLoaderSimple"
+      "loader": "CheckpointLoaderSimple",
+      "note": "full checkpoint incl. text encoders and VAE"
      }
     ]
    }
@@ -1444,49 +1696,56 @@
       "format": "fp8_e4m3fn",
       "gb": 5.73,
       "repo": "T5B/Z-Image-Turbo-FP8",
-      "loader": "UNETLoader"
+      "loader": "UNETLoader",
+      "community": true
      },
      {
       "file": "z-image-turbo-Q8_0.gguf",
       "format": "gguf_q8_0",
       "gb": 6.72,
       "repo": "unsloth/Z-Image-Turbo-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "z-image-turbo-Q6_K.gguf",
       "format": "gguf_q6_k",
       "gb": 5.5,
       "repo": "unsloth/Z-Image-Turbo-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "z-image-turbo-Q5_K_M.gguf",
       "format": "gguf_q5_k_m",
       "gb": 5.19,
       "repo": "unsloth/Z-Image-Turbo-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "z-image-turbo-Q4_K_M.gguf",
       "format": "gguf_q4_k_m",
       "gb": 4.68,
       "repo": "unsloth/Z-Image-Turbo-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "z-image-turbo-Q3_K_M.gguf",
       "format": "gguf_q3_k_m",
       "gb": 3.9,
       "repo": "unsloth/Z-Image-Turbo-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      },
      {
       "file": "z-image-turbo-Q2_K.gguf",
       "format": "gguf_q2_k",
       "gb": 3.39,
       "repo": "unsloth/Z-Image-Turbo-GGUF",
-      "loader": "UnetLoaderGGUF"
+      "loader": "UnetLoaderGGUF",
+      "community": true
      }
     ]
    },
@@ -1519,7 +1778,8 @@
       "format": "gguf_q4_k_m",
       "gb": 2.33,
       "repo": "unsloth/Qwen3-4B-GGUF",
-      "loader": "CLIPLoaderGGUF"
+      "loader": "CLIPLoaderGGUF",
+      "community": true
      }
     ],
     "clip_type": "lumina2"

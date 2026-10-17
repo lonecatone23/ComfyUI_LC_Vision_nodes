@@ -18,6 +18,7 @@ import json
 import re
 from pathlib import Path
 
+from .lc_vision_caption import _image_input_to_base64_list
 from .lc_vision_generate import budget_line, generate_with_recovery, release, trim_to_sentence
 from .lc_vision_loader import LCVisionModel, MODEL_TYPE, strip_thinking
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_text
@@ -82,6 +83,9 @@ class LCVisionPromptEnhancer:
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Nucleus sampling: only sample from the smallest set of tokens covering this cumulative probability. Lower = more focused, higher = more varied."}),
                 "repetition_penalty": ("FLOAT", {"default": 1.1, "min": 0.5, "max": 2.0, "step": 0.01, "tooltip": "Penalizes tokens the model has already used, to discourage repetitive or looping output. 1.0 = no penalty."}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1, "tooltip": "Sampling seed. Same seed + same inputs should reproduce the same output, modulo hardware/threading nondeterminism."}),
+                "image_1": ("IMAGE", {"tooltip": "Optional picture the model sees while rewriting (ref_image_0). The Flux 3 edit presets need "
+                                                 "it: the picture you edit."}),
+                "image_2": ("IMAGE", {"tooltip": "Optional second picture (ref_image_1)."}),
             },
         }
 
@@ -89,12 +93,22 @@ class LCVisionPromptEnhancer:
     RETURN_NAMES = ("text",)
     FUNCTION = "run"
     CATEGORY = "LC Vision"
-    DESCRIPTION = "Rewrites a prompt through an LC Vision model using a preset instruction. Text-only -- no image/video input."
+    DESCRIPTION = ("Rewrites a prompt through an LC Vision model using a preset instruction. Optional pictures let it see what you "
+                   "are editing (the Flux 3 edit presets need them).")
 
-    def _generate(self, vision_model: LCVisionModel, system_prompt: str, user_text: str, max_tokens, temperature, top_p, repetition_penalty, seed) -> str:
+    def _generate(self, vision_model: LCVisionModel, system_prompt: str, user_text: str, max_tokens, temperature, top_p, repetition_penalty, seed,
+                  images=()) -> str:
         effective_user = user_text
         if getattr(vision_model, "is_qwen3_family", False):
             effective_user = "/no_think\n" + user_text
+        frames = [(i, b64) for i, img in enumerate(images) if img is not None for b64 in _image_input_to_base64_list(img, 1024, 90)[:1]]
+        if frames:  # the pictures first, in order, then the request (the way BFL's upsampler sees them)
+            content = []
+            for i, b64 in frames:
+                content.append({"type": "text", "text": f"ref_image_{i}:"})
+                content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+            content.append({"type": "text", "text": effective_user})
+            effective_user = content
 
         response = generate_with_recovery(
             vision_model,
@@ -131,6 +145,8 @@ class LCVisionPromptEnhancer:
         top_p: float = 0.9,
         repetition_penalty: float = 1.1,
         seed: int = 0,
+        image_1=None,
+        image_2=None,
     ) -> tuple[str]:
         if vision_model is None or (getattr(vision_model, "llm", None) is None
                                     and getattr(vision_model, "build_params", None) is None):
@@ -154,9 +170,10 @@ class LCVisionPromptEnhancer:
 
         user_text = prompt_text.strip() or "Describe a scene vividly."
         user_text = apply_style_tag_to_text(user_text, style_tag)
-        result = self._generate(vision_model, system_prompt, user_text, max_tokens, temperature, top_p, repetition_penalty, seed)
+        result = self._generate(vision_model, system_prompt, user_text, max_tokens, temperature, top_p, repetition_penalty, seed,
+                                images=(image_1, image_2))
 
-        if _looks_like_leftover_planning(result):
+        if _looks_like_leftover_planning(result) and not preset.startswith("Flux 3"):
             # One constrained retry, same pattern used elsewhere in this space: ask
             # explicitly for just the final text rather than silently returning
             # planning output to the user.

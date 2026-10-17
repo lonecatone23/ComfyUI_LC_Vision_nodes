@@ -139,7 +139,12 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"window. No other mouth business (sighing, sipping, muttering) in a segment with a line.\n"
         f"5) Say what happens, never what does not happen (no \"without\", \"no\", \"doesn't\").\n"
         f"6) Plain scene description only: never mention segments, cuts, overlap, stitching or "
-        f"timing schemes in the text.\n\n"
+        f"timing schemes in the text.\n"
+        f"7) ONLY WHAT YOU ARE GIVEN: never invent names, extra people, animals, objects, relationships, "
+        f"dialogue or events that are not in the story or the pictures. Quoted lines come only from the story, "
+        f"word for word. Call people what the story calls them, or \"the woman\", \"the man\" when it names no one. "
+        f"Where the story says little, only small motion fits (breathing, blinking, a glance, a shift of weight, "
+        f"hair or a coat moving in the wind), never a new activity.\n\n"
     )
     if reference_count > 0:
         text += (

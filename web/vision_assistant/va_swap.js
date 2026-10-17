@@ -43,6 +43,26 @@ export const SWAPS = [
   })),
   // Note Pixaroma -> LC Note lives in NOTE_SWAPS (its own checkup card, with every other note type)
   { from: "PixaromaCompare", to: "LCBatchImageComparer", names: { image1: "image_a", image2: "image_b" }, missingOk: true },
+  // mxToolkit: the slider's real settings live in node properties (value, min, max, step, decimals); Xi / Xf / isfloatX
+  // are its hidden storage and have no LC twin
+  {
+    from: "mxSlider", to: "LCSlider", names: { X: "*" }, missingOk: true,
+    set: (old) => {
+      const p = old.properties || {};
+      const num = (v, fb) => (Number.isFinite(Number(v)) ? Number(v) : fb);
+      return { value: num(p.value, 20), min: num(p.min, 0), max: num(p.max, 100), step: num(p.step, 1) > 0 ? num(p.step, 1) : 1, decimals: Math.max(0, Math.min(4, Math.floor(num(p.decimals, 0)))) };
+    },
+  },
+  { from: "mxSeed", to: "LCSeed", names: { X: "seed" }, missingOk: true, set: (old) => ({ base_seed: Number(old.widgets?.find((w) => w.name === "X")?.value ?? old.widgets_values?.[0]) || 0 }) },
+  // the 2D slider becomes LC Size Pad: X is the width, Y the height (Custom keeps the exact numbers)
+  {
+    from: "mxSlider2D", to: "LCSizePad", names: { X: "width", Y: "height" }, missingOk: true,
+    set: (old) => {
+      const p = old.properties || {};
+      const w = Math.round(Number(p.valueX) || 1024), h = Math.round(Number(p.valueY) || 1024);
+      return { model: "Custom", aspect: "free", width: w, height: h, megapixels: Math.round((w * h) / 1e4) / 100 };
+    },
+  },
 ];
 
 // Pixaroma keeps state as JSON in node.properties
@@ -76,6 +96,8 @@ function defOf(t) {
 }
 
 const sel = (sw, name) => sw.names?.[name] ?? name;
+// an output's real name: some packs blank the label on the canvas (mxToolkit), so fall back to the node's definition
+const outName = (node, i) => node.outputs?.[i]?.name || LiteGraph.registered_node_types?.[node.type]?.nodeData?.output_name?.[i] || "";
 
 // A text box that feeds a negative prompt becomes LC Negative, not Prompt (LCPositive): follow its wires a few steps
 // (text box -> CLIP Text Encode -> the sampler's negative). Only when a negative is found and no positive.
@@ -126,10 +148,10 @@ export function plan(node, sw) {
     const to = sel(sw, inp.name);
     if (!def.inputs.has(to)) return { ok: false, why: `its ${inp.name} input has no match` };
   }
-  for (const out of node.outputs || []) {
+  for (const [i, out] of (node.outputs || []).entries()) {
     if (!out.links?.length) continue;
-    const to = sel(sw, out.name);
-    if (!def.outputs.includes(to)) return { ok: false, why: `its ${out.name} output has no match` };
+    const to = sel(sw, outName(node, i));
+    if (!def.outputs.includes(to)) return { ok: false, why: `its ${outName(node, i) || "unnamed"} output has no match` };
   }
   const drops = (node.widgets || []).filter((w) => sw.drop?.includes(w.name)).map((w) => w.name);
   return { ok: true, drops };
@@ -180,10 +202,10 @@ export function swapNode(old, base) {
     return l && { to: sel(sw, i.name), from: graph.getNodeById(l.origin_id), slot: l.origin_slot };
   }).filter(Boolean);
   const outs = [];
-  (old.outputs || []).forEach((o) => {
+  (old.outputs || []).forEach((o, i) => {
     for (const id of o.links || []) {
       const l = graph.links?.get?.(id) ?? graph.links?.[id];
-      if (l) outs.push({ from: sel(sw, o.name), node: graph.getNodeById(l.target_id), slot: l.target_slot });
+      if (l) outs.push({ from: sel(sw, outName(old, i)), node: graph.getNodeById(l.target_id), slot: l.target_slot });
     }
   });
   const pos = [...old.pos], mode = old.mode, size = old.size ? [...old.size] : null;

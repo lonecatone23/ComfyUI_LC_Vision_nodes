@@ -6,6 +6,51 @@ import { api } from "../../../scripts/api.js";
 import { REPLACEMENTS } from "./va_replacements.js";
 import * as swap from "./va_swap.js";
 import { highlight } from "./va_glow.js";
+
+// ------------------------------------------------------------------ gated models (license first: BFL's FLUX, Meta's SAM 3 and Llama)
+const GATES = new Map();
+/** Is this Hugging Face repo gated, and does this computer's login have access? Asked once per repo per checkup run. */
+export async function hfGate(repo, refresh = false) {
+  if (!repo) return null;
+  if (!refresh && GATES.has(repo)) return GATES.get(repo);
+  const p = api.fetchApi(`/lc_vision/hf_gate?repo=${encodeURIComponent(repo)}${refresh ? "&refresh=1" : ""}`)
+    .then((r) => (r.status === 200 ? r.json() : null)).catch(() => null);
+  GATES.set(repo, p);
+  return p;
+}
+
+/** The steps for a gated repo this computer can't download yet: accept (or request), then log in. */
+export function gateSteps(g) {
+  const lic = g.license ? ` (${g.license})` : "";
+  const ask = g.mode === "manual"
+    ? `${g.repo} is gated by its owner${lic}. They approve each request by hand: open the page, sign in, fill in the request and wait for the approval email. That can take a while.`
+    : `${g.repo} is gated${lic}: open the page, sign in to Hugging Face and click "Agree and access repository". Access is instant.`;
+  const login = g.has_token
+    ? " This computer is already logged in to Hugging Face, so it downloads as soon as you have access."
+    : ` Then log ComfyUI in to Hugging Face: make a Read token, run ${g.login_cmd} in your ComfyUI folder and paste it. Never share your token or put it in a workflow.`;
+  return ask + login;
+}
+
+export function gateActions(g) {
+  return [
+    { label: g.mode === "manual" ? "Request access" : "Accept the license", tip: `Opens ${g.repo} on Hugging Face`, href: g.page_url },
+    ...(!g.has_token ? [{ label: "Make a token", tip: "Hugging Face > Settings > Access Tokens (Read is enough)", href: g.token_url }] : []),
+    ...(g.license_url ? [{ label: "Read the license", href: g.license_url }] : []),
+  ];
+}
+
+/** Turn a "Missing" card into a gated one when its repo needs the license, or say access is already there. */
+function applyGate(card, g) {
+  if (!g || !g.gated) return;
+  if (g.access === true) {
+    card.text += " ✅ It's gated, and this computer already has access, so it downloads like any other file.";
+    return;
+  }
+  card.level = 3;
+  card.title = `🔒 ${card.title} (license first)`;
+  card.text = card.text.replace(/ You can get it here:$/, "") + " " + gateSteps(g);
+  card.actions = gateActions(g);
+}
 import { findDamage, repair } from "./va_corrupt.js";
 
 let KNOW = null;
@@ -16,7 +61,7 @@ let lastError = null;
 export async function knowledge() {
   if (!KNOW) {
     try {
-      KNOW = await (await fetch(new URL("./va_knowledge.json", import.meta.url))).json();
+      KNOW = await (await fetch(new URL("./va_knowledge.json", import.meta.url), { cache: "no-cache" })).json(); // a pack update brings new models
     } catch (_) {
       KNOW = { families: [] };
     }
@@ -378,6 +423,7 @@ export async function checkMissingFiles() {
         level: 3, title: `Missing: ${file}`,
         text: `${label(n)} needs ${file}${folder ? ` in models/${folder}` : ""}.` + (repo ? " You can get it here:" : " I don't know where it comes from, so here's a search:"),
         nodeId: where(n),
+        _repo: repo,
         actions: repo ? [{ label: "Get it", tip: `Opens ${repo} on Hugging Face`, href: `https://huggingface.co/${repo}/tree/main` }]
           : [{ label: "Search Hugging Face", href: `https://huggingface.co/models?search=${encodeURIComponent(stem)}` },
              { label: "Search CivitAI", href: `https://civitai.com/search/models?query=${encodeURIComponent(stem)}` }],
@@ -395,6 +441,48 @@ export async function checkMissingFiles() {
     text: `${ins.slice(0, 4).map(label).join(", ")}${ins.length > 4 ? ` and ${ins.length - 4} more` : ""} still point at the author's pictures or videos, which aren't on this computer. Click each one and pick your own, or drag a file onto it.`,
     nodeId: where(ins[0]), nodeIds: [...new Set(ins.map(where))], actions: [],
   });
+  const repos = [...new Set(cards.map((c) => c._repo).filter(Boolean))];
+  const gates = Object.fromEntries(await Promise.all(repos.map(async (r) => [r, await hfGate(r)])));
+  for (const c of cards) if (c._repo) applyGate(c, gates[c._repo]);
+  return cards;
+}
+
+/** LC Model Optimizer about to download a gated file (★ Recommended picked a file that isn't here, or a ⬇ download): it
+ * would stop at the download. Asks the optimizer which file it picks, then warns with the steps unless this computer
+ * already has access. */
+export async function checkGatedDownloads() {
+  const K = await knowledge();
+  const cards = [];
+  for (const n of allNodes()) {
+    if (!active(n) || !/^LCOptimizer/.test(n.type)) continue;
+    const val = (name) => String(n.widgets?.find((x) => x.name === name)?.value || "");
+    const bm = val("base_model");
+    const fam = K.families.find((f) => f.name === bm);
+    if (!fam) continue;
+    const kind = n.type === "LCOptimizerVideo" ? "video" : "image";
+    for (const [role, wname, comp] of [["model", "model_file", "diffusion"], ["clip", "text_encoder", "text_encoder"]]) {
+      const v = val(wname);
+      let file = null;
+      if (/^⬇/.test(v)) file = v.replace(/^⬇\s*Download:\s*/, "");
+      else if (v === "★ Recommended") {
+        try {
+          const r = await (await api.fetchApi(`/lc123/optimizer_node/choices?kind=${kind}&base=${encodeURIComponent(bm)}&role=${role}&goal=${encodeURIComponent(val("goal") || "Optimal")}`)).json();
+          if (r?.recommended && !r.recommended.on_disk) file = r.recommended.file;
+        } catch { /* LC123 not answering: say nothing */ }
+      }
+      if (!file) continue;
+      const variant = (fam[comp]?.variants || []).find((x) => x.file.toLowerCase() === base(file).toLowerCase());
+      if (!variant?.repo) continue;
+      const g = await hfGate(variant.repo);
+      if (!g?.gated || g.access === true) continue;
+      cards.push({
+        level: 3, title: `🔒 ${bm} needs its license accepted`,
+        text: `${label(n)} downloads ${variant.file} on the first run, and it's gated. ` + gateSteps(g)
+          + " Or download the file yourself (the workflow notes often link it) and drop it in the folder shown.",
+        nodeId: where(n), actions: gateActions(g),
+      });
+    }
+  }
   return cards;
 }
 
@@ -968,7 +1056,8 @@ export async function symptomReport(question) {
 
 export async function checkAll() {
   const out = [];
-  for (const f of [checkSwaps, checkNotes, checkErrors, checkCorruption, checkBrokenNodes, checkMissingFiles, checkClipType, checkStepsModel, checkCommon, checkModelFormat, checkOptimization]) {
+  GATES.clear(); // accepted a license since the last check? ask again
+  for (const f of [checkSwaps, checkNotes, checkErrors, checkCorruption, checkBrokenNodes, checkMissingFiles, checkGatedDownloads, checkClipType, checkStepsModel, checkCommon, checkModelFormat, checkOptimization]) {
     try {
       out.push(...(await f()));
     } catch (e) {

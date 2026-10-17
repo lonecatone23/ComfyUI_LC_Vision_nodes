@@ -120,6 +120,12 @@ def _base_instructions(segments: int, total_length: float, segment_length: float
         f"mouth movement instead of the real words. It is fine, and expected, for a dialogue "
         f"segment to have fewer distinct beats than a purely physical one -- delivering the "
         f"line cleanly takes priority over filling time with unrelated action.\n\n"
+        f"Use only what you are given: never invent names, extra people, animals, objects, "
+        f"relationships, dialogue or events that are not in the story or the pictures. Quoted "
+        f"lines come only from the story, word for word. Call people what the story calls them, "
+        f"or \"the woman\", \"the man\" when it names no one. When filling time, only small motion "
+        f"fits (breathing, blinking, a glance, a shift of weight, hair or clothing moving), never "
+        f"a new activity.\n\n"
     )
     if reference_count > 0:
         text += (
