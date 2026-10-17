@@ -10,6 +10,12 @@ export const SWAPS = [
   // -1 is "random every run" in both; rgthree's -2 / -3 (increment / decrement) have no LC twin, so they become random too
   { from: "Seed (rgthree)", to: "LCSeed", names: { seed: "base_seed", SEED: "seed" }, set: (old) => (Number(old.widgets?.find((w) => w.name === "seed")?.value) < 0 ? { base_seed: -1 } : {}) },
   { from: "CR Seed", to: "LCSeed", names: { seed: "base_seed" } },
+  // the second step count (rgthree's refiner_step) becomes LC's detailer_steps; denoise stays at its default 1
+  {
+    from: "KSampler Config (rgthree)", to: "LCSamplerConfigureSimple",
+    names: { steps_total: "total_steps", refiner_step: "detailer_steps", STEPS: "total_steps", REFINER_STEP: "detailer_steps", CFG: "cfg",
+             SAMPLER: "sampler_name", SCHEDULER: "scheduler" },
+  },
   { from: "easy seed", to: "LCSeed", names: { seed: "base_seed" } },
   { from: "Display Any (rgthree)", to: "LCShowAny", names: { source: "any" } },
   { from: "easy showAnything", to: "LCShowAny", names: { anything: "any" } },
