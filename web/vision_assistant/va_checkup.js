@@ -404,10 +404,18 @@ export async function checkMissingFiles() {
         continue;
       }
       let repo = null;
+      const sameModel = new Set(); // other formats of the same model (bf16 asked, fp8 on disk), from the knowledge
       for (const fam of K.families) for (const role of ["diffusion", "text_encoder", "vae"]) {
-        const v = (fam[role]?.variants || []).find((x) => x.file.toLowerCase() === file.toLowerCase());
+        const vs = fam[role]?.variants || [];
+        const v = vs.find((x) => x.file.toLowerCase() === file.toLowerCase());
         if (v?.repo) repo = v.repo;
+        if (v) vs.forEach((x) => sameModel.add(x.file.toLowerCase()));
       }
+      // the same model under another name: a known other format, or the same name once format tags and punctuation go
+      // (qwen_3_4b.safetensors asked, qwen3-4B.safetensors or qwen_3_4b_fp8_mixed.safetensors here)
+      const key = (f) => base(f).toLowerCase().replace(/\.\w+$/, "")
+        .replace(/[-_. ](bf16|fp16|fp32|fp8|fp8_?(e4m3fn|e5m2|scaled|mixed)?|fp4_?mixed|nvfp4|mxfp8|int8_?convrot|int8|q\d_\w+|q\d)$/g, "").replace(/[^a-z0-9]/g, "");
+      const have = vals.filter((v) => typeof v === "string" && /\.\w{2,12}$/.test(v) && (sameModel.has(base(v).toLowerCase()) || key(v) === key(file)));
       const folder = FOLDER[n.type] || (n.type.match(/Lora/i) ? "loras" : null);
       const isInput = folder === "input" || /image|video|audio|upload|^file$/i.test(w.name) || /^Load(Image|Video|Audio)|VHS_Load/i.test(n.type);
       if (isInput) {
@@ -419,6 +427,17 @@ export async function checkMissingFiles() {
         continue;
       }
       const stem = file.replace(/\.\w+$/, "");
+      if (have.length) {
+        cards.push({
+          level: 3, title: `Missing: ${file} (you have the same model)`,
+          text: `${label(n)} asks for ${file}, and you already have the same model as ${base(have[0])}${have.length > 1 ? ` (or ${base(have[1])})` : ""}. One click switches to it.`,
+          nodeId: where(n),
+          _repo: repo,
+          actions: [...have.slice(0, 2).map((v) => ({ label: `Use ${base(v)}`, tip: `Sets ${w.name} to ${v}`, run: { set: [n, w.name, v] } })),
+            ...(repo ? [{ label: "Get it", tip: `Opens ${repo} on Hugging Face`, href: `https://huggingface.co/${repo}/tree/main` }] : [])],
+        });
+        continue;
+      }
       cards.push({
         level: 3, title: `Missing: ${file}`,
         text: `${label(n)} needs ${file}${folder ? ` in models/${folder}` : ""}.` + (repo ? " You can get it here:" : " I don't know where it comes from, so here's a search:"),

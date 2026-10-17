@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import threading
 import urllib.error
 import urllib.parse
@@ -47,8 +48,17 @@ def _stamp(path):
     return st.st_size, int(st.st_mtime)
 
 
+# weights some LC nodes read from outside the registered model folders
+EXTRA_DIRS = [
+    (re.compile(r"^rife\d+\.pth$", re.I), "rife", lambda: [os.path.join(folder_paths.models_dir, "rife"),
+                                                         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                                                      "ComfyUI-Frame-Interpolation", "ckpts", "rife")]),
+]
+
+
 def resolve(name, hint=None):
-    """(folder, full path) of a model file name as a widget holds it, or (hint, None) when it is not on this computer."""
+    """(folder, full path) of a model file name as a widget holds it, or (hint, None) when it is not on this computer.
+    A file moved to another subfolder of the same kind is found by its name (moved = the path differs from the saved one)."""
     folders = ([hint] if hint else []) + [f for f in folder_paths.folder_names_and_paths if f != hint]
     for f in folders:
         try:
@@ -57,7 +67,36 @@ def resolve(name, hint=None):
             p = None
         if p and os.path.isfile(p):
             return f, p
+    want = os.path.basename(name.replace("\\", "/")).lower()
+    for pat, folder, dirs in EXTRA_DIRS:
+        if pat.match(want):
+            for d in dirs():
+                p = os.path.join(d, want)
+                if os.path.isfile(p):
+                    return folder, p
+    for f in ([hint] if hint else folders):  # by name only in the folder the node reads from: generic names stay unmatched
+        try:
+            hits = [x for x in folder_paths.get_filename_list(f) if os.path.basename(x.replace("\\", "/")).lower() == want]
+        except Exception:
+            hits = []
+        if len(hits) == 1:
+            p = folder_paths.get_full_path(f, hits[0])
+            if p and os.path.isfile(p):
+                return f, p
     return hint, None
+
+
+def _where(folder, path):
+    """The subfolder a file sits in, as the model folder's own name shows it (MiniMax/Utility), or its parent folder."""
+    d = os.path.dirname(os.path.abspath(path))
+    try:
+        for root in folder_paths.get_folder_paths(folder):
+            root = os.path.abspath(root)
+            if d.lower().startswith(root.lower()):
+                return os.path.relpath(d, root) if d.lower() != root.lower() else folder
+    except Exception:
+        pass
+    return os.path.basename(d)
 
 
 def cached_hash(path):
@@ -139,6 +178,8 @@ try:
             if path:
                 size, _ = _stamp(path)
                 row.update(size=size, sha256=cached_hash(path))
+                if not path.replace("\\", "/").lower().endswith(name.replace("\\", "/").lower()):
+                    row["moved"] = _where(folder, path)  # found by name in another subfolder
             out.append(row)
         return _ok({"items": out})
 

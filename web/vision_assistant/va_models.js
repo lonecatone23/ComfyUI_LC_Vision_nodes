@@ -140,7 +140,7 @@ function rowHtml(r) {
     <div style="width:18px">${r.exists ? "✅" : "❌"}</div>
     <div class="va-grow" style="min-width:0">
       <div class="va-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.name)}">${esc(short(r.name))}</div>
-      <div class="va-sub">${esc(r.folder || "")}${r.exists ? ` · ${gb(r.size)}` : " · not on this computer"} · ${esc(r.where[0])}${r.where.length > 1 ? ` +${r.where.length - 1}` : ""}</div>
+      <div class="va-sub">${esc(r.folder || "")}${r.exists ? ` · ${gb(r.size)}` : " · not on this computer"}${r.moved ? ` · found in ${esc(r.moved)}` : ""} · ${esc(r.where[0])}${r.where.length > 1 ? ` +${r.where.length - 1}` : ""}</div>
       ${out}
     </div>${btn}</div>`;
 }
