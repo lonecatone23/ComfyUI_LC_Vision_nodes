@@ -27,11 +27,31 @@ const TYPES = new Set([
   "LCVisionPromptEnhancer",
   "LCVisionMoviemaker",
   "LCVisionDanbooruCaption",
+  "LCVisionDirector",
 ]);
+
+// launch color only (they keep their own size): the Shot List reads best black
+const COLOR_ONLY = {
+  LCVisionShotList: ["#222222", "#000000"],
+  LCVisionRedirect: [COLOR, BGCOLOR],
+  LCVisionStoryboardBuilder: [COLOR, BGCOLOR],
+  LCVisionStoryboardSave: [COLOR, BGCOLOR],
+  LCVisionStoryboardSheet: [COLOR, BGCOLOR],
+};
 
 app.registerExtension({
   name: "LCVision.Style",
   async beforeRegisterNodeDef(nodeType, nodeData) {
+    const only = COLOR_ONLY[nodeData?.name];
+    if (only) {
+      const created = nodeType.prototype.onNodeCreated;
+      nodeType.prototype.onNodeCreated = function () {
+        const r = created?.apply(this, arguments);
+        lcApplyLaunchColor(this, only[0], only[1]);
+        return r;
+      };
+      return;
+    }
     if (!TYPES.has(nodeData?.name)) return;
     const defaultHeight = DEFAULT_HEIGHTS[nodeData.name];
 

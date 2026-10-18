@@ -7,7 +7,7 @@ Registered class IDs (7):
 - `LCVisionReviewer`: LC Vision Reviewer 🕵️ (BETA)
 - `LCVisionPromptEnhancer`: LC Vision Prompt Enhancer 📝
 - `LCVisionMoviemaker`: LC Vision Moviemaker 🎥
-- `LCVisionDirector`: LC Vision Director 🎬
+- `LCVisionDirector`: LC Vision Showrunner 🎬
 - `LCVisionRedirect`: LC Vision Redirect 🔬
 - `LCVisionDanbooruCaption`: LC Vision Danbooru Caption 🏷️
 

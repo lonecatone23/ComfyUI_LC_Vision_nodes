@@ -16,6 +16,7 @@ const groupsOf = () => root()?._groups || [];
 const byId = (id) => nodes().find((n) => String(n.id) === String(id));
 /** What a setting is called on the node face (panel toggles carry their target's name as a label, not as the name). */
 export const widgetLabel = (id, name) => {
+  if (String(name).startsWith("part:")) return String(name).slice(5); // a part of the node's own panel
   const w = byId(id)?.widgets?.find((x) => x.name === name);
   return String(w?.label || name).trim();
 };
@@ -178,6 +179,7 @@ export function check(tour) {
     const settings = (s.settings || []).map((x) => {
       const n = byId(String(x.node).replace(/^#/, ""));
       const want = String(x.widget || "").toLowerCase();
+      if (n && want.startsWith("part:")) return { ...x, node: n.id }; // found on screen when the step plays
       const w = n?.widgets?.find((y) => y.name?.toLowerCase() === want || String(y.label || "").toLowerCase() === want);
       return w ? { ...x, node: n.id, widget: w.name } : null;
     }).filter(Boolean);
@@ -254,6 +256,14 @@ export function stepChoices(s) {
       if (seen.has(key)) continue;
       seen.add(key);
       out.push({ group, node: n.id, widget: w.name, label: `${core.nodeLabel(n)} › ${w.label || w.name}` });
+    }
+    // the parts of the node's own panel (a Proof Sheet card, an Assembler card, a Shot List box)
+    for (const el of n.widgets?.flatMap((w) => (w.element ? [...w.element.querySelectorAll("[data-tour]")] : [])) || []) {
+      const part = String(el.dataset.tour || "").replace(/\|/g, "/").trim();
+      const key = `${n.id}|part:${part}`;
+      if (!part || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ group, node: n.id, widget: `part:${part}`, label: `${core.nodeLabel(n)} › ${part}` });
     }
   };
   picked.forEach((id) => add(id, "Selected on the canvas"));

@@ -333,13 +333,15 @@ function renderTourEdit(body) {
     if (st.settings.length >= MAX_TOUR_SETTINGS) return `<div class="va-sub">${MAX_TOUR_SETTINGS} settings is the most a step shows.</div>`;
     const marked = new Set(st.settings.map((x) => `${x.node}|${x.widget}`));
     const opts = tour.stepChoices(st).filter((c) => !marked.has(`${c.node}|${c.widget}`));
-    if (!opts.length) return `<div class="va-sub">Select a node on the canvas to mark one of its settings here.</div>`;
     const groups = [...new Set(opts.map((c) => c.group))];
-    return `<select class="va-input" data-add="${i}" title="Marks this setting with the next number on the canvas. Select a node first to mark one outside this step.">
+    const list = opts.length ? `<select class="va-input" data-add="${i}" title="Marks this setting with the next number on the canvas. Select a node first to mark one outside this step.">
       <option value="">+ Add a setting…</option>
       ${groups.map((g) => `<optgroup label="${esc(g)}">${opts.filter((c) => c.group === g)
         .map((c) => `<option value="${esc(`${c.node}|${c.widget}`)}">${esc(c.label)}</option>`).join("")}</optgroup>`).join("")}
-    </select>`;
+    </select>` : `<div class="va-sub">Select a node on the canvas to list its settings here.</div>`;
+    return `${list}<div style="display:flex;gap:6px;margin-top:4px">
+      <button class="va-btn" data-pick="${i}" title="Then click any setting on a node, or any part of a panel (a Proof Sheet card, an Assembler card, a Shot List box). Esc cancels.">🎯 Pick on canvas</button>
+      <input class="va-input" data-typed="${i}" style="flex:1;min-width:0" placeholder="…or type its name (on the selected node), Enter" title="A setting's name or label, or a panel part's name. Select its node on the canvas first."></div>`;
   };
   const groupsAll = top?._groups || [];
   const groupLabel = (g, idx) => {
@@ -426,6 +428,78 @@ function renderTourEdit(body) {
       t.steps[Number(sel.dataset.add)].settings.push({ node: Number(node) || node, widget, why: "" });
     });
     body.querySelector(`[data-set="${sel.dataset.add}|${t.steps[Number(sel.dataset.add)].settings.length - 1}"]`)?.focus();
+  }));
+  // 🎯 Pick on canvas: the next click on a setting or a named panel part becomes the next marker
+  const addMarker = (i, node, widget) => {
+    keepScroll(() => {
+      collect();
+      t.steps[i].settings.push({ node: Number(node) || node, widget, why: "" });
+    });
+    body.querySelector(`[data-set="${i}|${t.steps[i].settings.length - 1}"]`)?.focus();
+  };
+  body.querySelectorAll("[data-pick]").forEach((b) => (b.onclick = () => {
+    const i = Number(b.dataset.pick);
+    toast("info", "Tour", "Click a setting on a node, or a part of a panel. Esc cancels.");
+    const done = () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") done();
+    };
+    const onDown = (e) => {
+      const top = app.rootGraph || app.graph;
+      // a part of a node's own panel
+      const tag = e.target.closest?.("[data-tour]");
+      if (tag) {
+        const owner = (top?._nodes || []).find((n) => (n.widgets || []).some((w) => w.element?.contains?.(tag)));
+        if (owner) {
+          e.preventDefault();
+          e.stopPropagation();
+          done();
+          return addMarker(i, owner.id, `part:${tag.dataset.tour}`);
+        }
+      }
+      // a setting drawn on the canvas
+      if (e.target === app.canvas?.canvas) {
+        const [x, y] = app.canvas.convertEventToCanvasOffset ? app.canvas.convertEventToCanvasOffset(e) : [0, 0];
+        const node = top?.getNodeOnPos?.(x, y);
+        const wh = window.LiteGraph?.NODE_WIDGET_HEIGHT || 20;
+        const w = node && (node.getWidgetOnPos?.(x, y) || (node.widgets || []).find((w2) => w2.last_y != null && !w2.hidden
+          && y >= node.pos[1] + w2.last_y && y <= node.pos[1] + w2.last_y + (w2.computeSize?.(node.size[0])?.[1] || wh)));
+        if (node && w?.name) {
+          e.preventDefault();
+          e.stopPropagation();
+          done();
+          return addMarker(i, node.id, w.name);
+        }
+      }
+      if (!body.contains(e.target)) { // a click in the editor itself just keeps waiting
+        done();
+        toast("warn", "Tour", "That has no name to mark. Type its name instead (select its node first).");
+      }
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("keydown", onKey, true);
+  }));
+  // typed: a setting's name or label, else a panel part's name, on the selected node (or the step's own nodes)
+  body.querySelectorAll("[data-typed]").forEach((inp) => (inp.onkeydown = (e) => {
+    e.stopPropagation();
+    if (e.key !== "Enter" || !inp.value.trim()) return;
+    const i = Number(inp.dataset.typed);
+    const want = inp.value.trim().toLowerCase();
+    const top = app.rootGraph || app.graph;
+    const ids = [...Object.keys(app.canvas?.selected_nodes || {}), ...(t.steps[i].nodes || []).map(String)];
+    for (const id of ids) {
+      const n = top.getNodeById(Number(id)) || top.getNodeById(id);
+      const w = (n?.widgets || []).find((x) => String(x.name || "").toLowerCase() === want || String(x.label || "").toLowerCase() === want);
+      if (w) return addMarker(i, n.id, w.name);
+      const parts = (n?.widgets || []).flatMap((x) => (x.element ? [...x.element.querySelectorAll("[data-tour]")] : []));
+      const part = parts.find((el) => el.dataset.tour.toLowerCase() === want) || parts.find((el) => el.dataset.tour.toLowerCase().includes(want));
+      if (part) return addMarker(i, n.id, `part:${part.dataset.tour}`);
+    }
+    if (ids.length) return addMarker(i, ids[0], `part:${inp.value.trim()}`); // kept as typed: found by name when it plays
+    toast("warn", "Tour", "Select the node it belongs to on the canvas first.");
   }));
   body.querySelectorAll("[data-rm]").forEach((b) => (b.onclick = () => {
     const [i, k] = b.dataset.rm.split("|").map(Number);

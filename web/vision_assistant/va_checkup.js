@@ -1109,8 +1109,26 @@ export function setWidget(id, name, value) {
   try {
     w.callback?.(value, app.canvas, n);
   } catch (_) {}
+  clearMissingMark(n, w);
   app.graph.setDirtyCanvas(true, true);
   return true;
+}
+
+/** A file picked from code doesn't clear ComfyUI's missing-model marks (red outline, missing-model list, error notice)
+ * the way picking it by hand does: clear them once the setting holds a file that exists. */
+function clearMissingMark(n, w) {
+  const vals = w.options?.values;
+  if (!Array.isArray(vals) || !vals.includes(w.value)) return;
+  try {
+    const pinia = document.querySelector("#vue-app")?.__vue_app__?.config?.globalProperties?.$pinia;
+    const missing = pinia?._s?.get("missingModel");
+    missing?.removeMissingModelByWidget?.(String(n.id), w.name);
+    const stillBad = (n.widgets || []).some((x) => Array.isArray(x.options?.values) && typeof x.value === "string"
+      && /\.\w{2,12}$/.test(x.value) && !x.options.values.includes(x.value));
+    if (!stillBad) n.has_errors = false;
+    const left = missing?.$state?.missingModelCandidates;
+    if (!left || !left.length) pinia?._s?.get("executionError")?.dismissErrorOverlay?.();
+  } catch (_) {}
 }
 
 export function addNear(id, type) {

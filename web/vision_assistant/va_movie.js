@@ -3,13 +3,47 @@
 // output/LC_H3/<project>/ through /lc_vision/movie/*; acts by setting the LC H3 Segment node and queueing.
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
+import { projectSource } from "../lc_vision_project.js";
+
+// video sound: off until you turn it on, then remembered (in this browser) for every LC video player
+function lcSound(v) {
+  const KEY = "lc.video.sound";
+  let on = false;
+  try {
+    on = localStorage.getItem(KEY) === "on";
+  } catch (_e) {}
+  v.muted = !on;
+  if (!v.__lcSound) {
+    v.__lcSound = true;
+    v.addEventListener("volumechange", () => {
+      try {
+        localStorage.setItem(KEY, v.muted ? "off" : "on");
+      } catch (_e) {}
+    });
+  }
+  return v;
+}
+
 
 const SEGMENT = "LCH3Segment";
 const REDIRECT = "LCVisionRedirect";
 const DIRECTOR = "LCVisionDirector";
-const st = { project: "", data: null, projects: null, playing: "", loading: false, sig: "" };
+// picked: a project chosen in the tab's own list, kept until the workflow's project changes
+const st = { project: "", picked: "", graphProject: "", data: null, projects: null, playing: "", loading: false, sig: "" };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+// what tells segments apart: the framing (Camera line) and the line of dialogue, or the first action; every plan
+// starts with the same Place / Holding / Sound lines, so those are skipped
+function shotLine(action) {
+  const lines = String(action || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const cam = (lines.find((l) => /^camera:/i.test(l)) || "").replace(/^camera:\s*/i, "");
+  const said = /[“"]([^”"]+)[”"]/.exec(action || "");
+  const beat = lines.filter((l) => !/^(place|holding|sound|camera):/i.test(l)).join(" ")
+    .replace(/^From 0\.00 to [\d.]+ seconds, the shot carries straight on[^.]*\.\s*/i, "")
+    .replace(/\bAt \d+(?:\.\d+)? seconds,\s*/gi, "").replace(/\s+/g, " ").trim();
+  const what = said ? `"${said[1].trim()}"` : beat.slice(0, 110) + (beat.length > 110 ? "…" : "");
+  return [cam, what].filter(Boolean).join(" · ");
+}
 const nodesOf = (type) => (app.graph?._nodes || []).filter((n) => n.type === type || n.comfyClass === type);
 const widget = (node, name) => (node?.widgets || []).find((w) => w.name === name);
 
@@ -18,9 +52,15 @@ export function relevant() {
   return nodesOf(SEGMENT).length > 0;
 }
 
-function projectFromGraph() {
+// the Showrunner's project, also when it comes in on a wire (a text node, Set / Get)
+async function projectFromGraph() {
   const d = nodesOf(DIRECTOR)[0];
-  return d ? String(widget(d, "project")?.value || "").trim() : "";
+  if (!d) return "";
+  try {
+    return (await projectSource(d)).name;
+  } catch (_e) {
+    return String(widget(d, "project")?.value || "").trim();
+  }
 }
 
 async function getJson(url) {
@@ -29,11 +69,17 @@ async function getJson(url) {
 }
 
 export async function refresh(force) {
-  if (st.loading) return;
+  while (st.loading) await new Promise((r) => setTimeout(r, 50));  // a Load mid-refresh still switches
   st.loading = true;
   try {
     if (!st.projects || force) st.projects = (await getJson("/lc_vision/movie/projects"))?.projects || [];
-    const want = projectFromGraph() || st.project || st.projects[0]?.name || "";
+    const graph = await projectFromGraph();
+    if (graph !== st.graphProject) {
+      st.graphProject = graph;
+      st.picked = "";
+    }
+    const want = st.picked || graph || st.project || st.projects[0]?.name || "";
+    if (want !== st.project) st.playing = "";
     st.project = want;
     st.data = want ? await getJson(`/lc_vision/movie/status?project=${encodeURIComponent(want)}`) : null;
   } finally {
@@ -41,7 +87,8 @@ export async function refresh(force) {
   }
 }
 
-const view = (file, bust) => `/api/view?type=output&subfolder=${encodeURIComponent(st.data.subfolder)}&filename=${encodeURIComponent(file)}${bust ? `&t=${bust}` : ""}`;
+// the joined movie sits at the top of the project, the segments in its work folder
+const view = (file, bust, sub = st.data.subfolder) => `/api/view?type=output&subfolder=${encodeURIComponent(sub)}&filename=${encodeURIComponent(file)}${bust ? `&t=${bust}` : ""}`;
 const segFile = (i) => `seg_${String(i).padStart(3, "0")}.mp4`;
 
 function faceWord(m, d) {
@@ -74,28 +121,31 @@ function problems(d) {
     }
   }
   const next = segs.find((s) => !s.done);
-  if (next) out.push({ lvl: 0, title: `Next: segment ${next.index} (${next.mode.toLowerCase()})`, text: next.action.slice(0, 220) + (next.action.length > 220 ? "…" : ""), act: ["next", next.index] });
-  else if (segs.length && d.full_outdated) out.push({ lvl: 0, title: "The joined video is out of date", text: "Segments changed after the last join. Run the workflow once more with LC H3 Assemble in it, or queue Assemble on its own.", act: null });
-  else if (segs.length && !d.full) out.push({ lvl: 0, title: "All segments made", text: "Run LC H3 Assemble to join them into one video.", act: null });
+  if (next) out.push({ lvl: 0, title: `Next: segment ${next.index} (${next.mode.toLowerCase()})`, text: shotLine(next.action), act: ["next", next.index] });
+  else if (segs.length && d.full_outdated) out.push({ lvl: 0, title: "The joined video is out of date", text: "Segments changed after the last join. Redo any segment and LC H3 Segment Save joins them all again.", act: null });
+  else if (segs.length && !d.full) out.push({ lvl: 0, title: "All segments made", text: "LC H3 Segment Save joins them after every save: the full video is in the project folder.", act: null });
   return out.sort((a, b) => b.lvl - a.lvl);
 }
 
-async function queueSegment(index, newSeed) {
+async function queueSegment(index, newSeed, make = "") {
   const segNode = nodesOf(SEGMENT)[0];
   if (!segNode) return "There is no LC H3 Segment node in this workflow.";
   const iw = widget(segNode, "index");
   const sw = widget(segNode, "seed");
-  const redirect = nodesOf(REDIRECT)[0];
+  const mw = widget(segNode, "make"); // LC_AV 0.5: make = next segment / all remaining / redo
+  const redirect = nodesOf(REDIRECT)[0]; // older workflows still have Redirect as its own node
   const rw = widget(redirect, "index");
-  const keep = iw?.value;
+  const keepMake = mw?.value;
+  if (mw) mw.value = make || (index ? "redo" : "next segment");
   if (iw) iw.value = index;
   if (rw) rw.value = index;
   if (newSeed && sw) sw.value = Math.floor(Math.random() * 2 ** 32);
   try {
     await app.queuePrompt(0, 1);
   } finally {
-    // back to "next segment", so a plain Run afterwards doesn't redo this one again
-    if (iw) iw.value = keep === undefined ? 0 : 0;
+    // back to the next segment, so a plain Run afterwards doesn't redo this one again
+    if (mw) mw.value = keepMake === "redo" || !keepMake ? "next segment" : keepMake;
+    if (iw) iw.value = 0;
     if (rw) rw.value = 0;
     app.graph.setDirtyCanvas(true, true);
   }
@@ -103,6 +153,8 @@ async function queueSegment(index, newSeed) {
 }
 
 async function queueRemaining(count) {
+  const segNode = nodesOf(SEGMENT)[0];
+  if (widget(segNode, "make")) return queueSegment(0, false, "all remaining"); // one run, it chains itself
   for (let k = 0; k < count; k++) {
     const err = await queueSegment(0, false);
     if (err) return err;
@@ -111,6 +163,7 @@ async function queueRemaining(count) {
 }
 
 export function render(body, { toast, rerender, askChat }) {
+  queueMicrotask(() => body.querySelectorAll("video").forEach(lcSound)); // sound off until you turn it on
   if (!st.data && !st.loading) {
     body.innerHTML = `<div class="va-hint">Loading the movie…</div>`;
     refresh(true).then(rerender);
@@ -118,7 +171,7 @@ export function render(body, { toast, rerender, askChat }) {
   }
   const d = st.data;
   if (!d || d.error) {
-    body.innerHTML = `<div class="va-hint">${esc(d?.error || "No movie project yet.")} Run LC Vision Director once to write the plan; it saves to output/LC_H3/&lt;project&gt;/.</div>`;
+    body.innerHTML = `<div class="va-hint">${esc(d?.error || "No movie project yet.")} Run LC Vision Showrunner once to write the plan; it saves to output/LC_H3/&lt;project&gt;/.</div>`;
     return;
   }
   const segs = d.segments || [];
@@ -132,7 +185,7 @@ export function render(body, { toast, rerender, askChat }) {
     <div class="va-row" style="border-top:0;padding-top:0"><div class="va-grow"><div class="va-name">🎬 ${esc(d.project)}</div>
       <div class="va-sub">${done.length} of ${segs.length} segments made · ${secs.toFixed(1)} s so far</div></div>${picker}
       <button class="va-dots" data-m="reload" title="Refresh">⟳</button></div>
-    ${d.full ? `<video class="va-video" src="${view(d.full, bust)}" controls preload="metadata" style="width:100%;border-radius:8px;background:#000"></video>
+    ${d.full ? `<video class="va-video" src="${view(d.full, bust, st.data.work_subfolder || st.data.subfolder)}" controls preload="metadata" style="width:100%;border-radius:8px;background:#000"></video>
       <div class="va-sub">${d.full_outdated ? "⚠️ Older than the latest segments. Join again to update it." : "The joined video."}</div>` : ""}
     <div class="va-group">Checkup</div>
     ${probs.length ? probs.map((p, k) => `<div class="va-card l${p.lvl}"><div class="va-name">${esc(p.title)}</div><div class="va-hint">${esc(p.text)}</div>
@@ -148,8 +201,8 @@ export function render(body, { toast, rerender, askChat }) {
         ${s.index > 1 && s.face?.match == null && s.face ? `<span class="va-fit no" title="Seen from behind or too small to compare">no clear face</span>` : ""}
         ${s.index > 1 && s.face?.match != null ? `<span class="va-fit ${s.face.match >= d.face_same ? "ok" : s.face.match >= d.face_close ? "part" : "no"}" title="Face match to segment 1 (0 to 1)">face ${s.face.match.toFixed(2)} ${faceWord(s.face.match, d)}</span>` : ""}
         ${s.stale ? `<span class="va-fit no">out of line</span>` : ""}</div>
-        <div class="va-sub" style="white-space:normal">${esc(s.action.slice(0, 140))}${s.action.length > 140 ? "…" : ""}</div>
-        ${st.playing === String(s.index) ? `<video src="${view(segFile(s.index), Math.round(s.modified || 0))}" controls autoplay style="width:100%;border-radius:6px;margin-top:4px;background:#000"></video>` : ""}</div>
+        <div class="va-sub" style="white-space:normal">${esc(shotLine(s.action))}</div>
+        ${st.playing === String(s.index) ? `<video src="${view(segFile(s.index), Math.round(s.modified || 0), st.data.work_subfolder || st.data.subfolder)}" controls autoplay style="width:100%;border-radius:6px;margin-top:4px;background:#000"></video>` : ""}</div>
       ${s.done ? `<button class="va-dots" data-redo="${s.index}" title="Redo segment ${s.index} with a new seed">↻</button>` : ""}</div>`).join("")}</div>
     <button class="va-btn wide" data-m="ask" title="Open Chat with this project's numbers, to ask what to do">Ask about this movie</button>`;
 
@@ -160,7 +213,7 @@ export function render(body, { toast, rerender, askChat }) {
   };
   body.querySelectorAll("[data-p]").forEach((b) => (b.onclick = () => {
     const [kind, i] = probs[+b.dataset.p].act;
-    act(() => queueSegment(i, kind === "redo"));
+    act(() => (kind === "redo" ? queueSegment(i, true) : queueSegment(0, false, "next segment")));
   }));
   body.querySelectorAll("[data-redo]").forEach((b) => (b.onclick = () => act(() => queueSegment(+b.dataset.redo, true))));
   body.querySelectorAll("[data-play]").forEach((im) => (im.onclick = () => {
@@ -172,7 +225,7 @@ export function render(body, { toast, rerender, askChat }) {
   body.querySelector('[data-m="reload"]').onclick = () => refresh(true).then(rerender);
   const pick = body.querySelector('[data-m="pick"]');
   if (pick) pick.onchange = () => {
-    st.project = pick.value;
+    st.project = st.picked = pick.value;
     st.data = null;
     refresh(false).then(rerender);
   };
@@ -201,6 +254,18 @@ export function watch(onChange) {
   });
   api.addEventListener("execution_success", bump);
   api.addEventListener("execution_error", bump);
+  // 📂 Load on the Showrunner: switch to that project right away
+  window.addEventListener("lc-vision-project", (e) => {
+    st.picked = "";
+    st.graphProject = "";
+    st.project = e.detail?.name || st.project;
+    st.data = null;
+    st.sig = "";
+    refresh(true).then(() => {
+      st.sig = JSON.stringify(st.data?.segments?.map((s) => [s.done, s.modified, s.stale]) || []) + (st.data?.full_outdated ? 1 : 0) + (st.data?.full || "");
+      onChange();
+    });
+  });
 }
 
 export function reset() {

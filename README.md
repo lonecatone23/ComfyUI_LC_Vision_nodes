@@ -107,38 +107,37 @@ Plans a video as N independently-generated segments in **one** LLM call, not N c
 
 ---
 
-## LC Vision Director (BETA) 🎬
+## LC Vision Showrunner (BETA) 🎬
 
 Moviemaker's big brother for long videos: it plans a chain of short segments that pick up from each other, made one per Run by the LC H3 Segment nodes (LC AV, coming next).
 
 - **One style block for every segment.** Who's in it, where, the light and the camera are written once and pasted word for word into every segment, so nothing gets reworded halfway through.
 - **One continuous take.** Every segment continues from the last 1.6 s of the one before (`overlap_seconds`), so its new action is planned on the time that's left. A **CUT** only happens where your story writes one ("cut to..."). Walking into a new place happens inside the take.
 - **Ends settled.** Each segment ends on a calm pose with the face visible, so the next one has a clean handoff. A line of dialogue never gets split across two segments, and the story's own lines are checked for.
+- **Projects.** 💾 **Save** (and every Run) writes the Shot List, the Reference Assembler's list and the settings to `output/LC_H3/<project>/project.json`. 📂 **Load** brings one back; the Reference Assembler keeps its own pictures when it already has some.
 - **Plans once.** The plan saves to `output/LC_H3/<project>/plan.json` and reloads in about 2 s without loading the model, until you change the story or the timing, or turn on **replan**.
 - **Staging and props.** The camera leads the main person so the face stays visible, and anything that comes back (the cup, the bag) is described once and repeated word for word, so it doesn't change between segments.
+- **Fixes the joins.** Before each CONTINUE segment it looks at how the one before **really** ended and rewrites the start to match. Most jumps at a join come from the plan saying "she opens the door" when the door is already open, and H3 snaps the pose to match the words. Timestamps and spoken lines are protected: a rewrite that loses either is thrown out.
+- **extend_segments** (on): a shot with a long line gets its own longer segment, up to 10 s, instead of a warning to shorten it. Off: every segment is `segment_seconds` long.
 - 💡 **`segment_seconds`** 5 is a good default. Shorter segments = less VRAM. The first segment is 5 s and each CONTINUE adds about 3.5 s, so about 16 segments make a minute.
 
 ---
 
 ## LC Vision Shot List (BETA) 📋
 
-The story for the Director, filled in like a form instead of written from scratch. No AI involved.
+The story for the Showrunner, filled in like a form instead of written from scratch. No AI involved.
 
 - **The place**, **the cast** (name, man / woman, look) and **one row per shot**: framing, camera move, action, who speaks and the line.
-- It writes the story the way the Director reads it best: the place, the cast by name, "Cut to ..." for every new shot and at most one short line per shot.
-- **segments:** a suggested segment count. One per shot, more where a line or the action needs the time. Plug it into the Director's segments.
+- It writes the story the way the Showrunner reads it best: the place, the cast by name, "Cut to ..." for every new shot and at most one short line per shot.
+- **segments:** a suggested segment count: one per shot. A long line gets a longer segment from the Showrunner's **extend_segments**. Plug it into the Showrunner's segments.
+- 🧹 **Clear** empties the whole list for a new project (click twice). The Reference Assembler is never cleared.
 - **warnings:** what to fix, like a line too long for its shot or a speaker who is not in the cast. Empty when it all looks good.
 
 ---
 
 ## LC Vision Redirect (BETA) 🔬
 
-Sits between the Director and LC H3 Segment. Before a CONTINUE segment is made, it looks at how the previous segment **really** ended and rewrites the start of the next one to match.
-
-- **Why:** most jumps at a join come from the plan saying "she opens the door" when the door is already open. H3 then snaps the pose to match the words.
-- **Timestamps and spoken lines are protected.** A rewrite that loses either is thrown out and the plan's text is kept.
-- **Runs once per segment.** Redo the previous segment and it looks again, otherwise it's instant.
-- Set **`index`** the same as LC H3 Segment (0 = the next segment).
+The Showrunner does this itself now. Kept so older workflows still open; it passes the plan straight through when the Showrunner already fixed the join.
 
 ---
 
@@ -195,9 +194,10 @@ A sidebar tab (the LC logo on the left) that reads the open workflow for you. Wo
 - 4B suits Moviemaker and video workloads (more memory headroom for multi-frame batches). 8B suits Caption and image fidelity.
 - ✋ Moviemaker's `[Shot N]` label identifies which reference a moment involves. It is not a cut instruction. Ask it for one continuous take per segment if you see it start cross-cutting.
 
-## Example workflow
+## Example workflows
 
-`example workflows/LC Vision Example Workflow.json`. Loader into all three Run nodes, wired up and ready. Drop your own model and references in.
+In `workflows/`:
+- **LC Vision LLM Modules**: Caption, Prompt Enhancer, Moviemaker and Reviewer, wired up and ready. Drop your own model and references in.
 
 ## Licensing note
 

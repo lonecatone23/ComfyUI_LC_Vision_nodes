@@ -1,10 +1,10 @@
 """
-LC Vision Director
+LC Vision Showrunner
 ------------------
 Plans a long MiniMax H3 video as a chain of short segments, each generated in
 its own queue run and seeded from the end of the one before (the LC_AV
 segment nodes do the generating). Moviemaker plans independent clips; the
-Director plans a chain, which changes the rules:
+Showrunner plans a chain, which changes the rules:
 
 - one shared STYLE block (people, setting, light, camera) written once and
   pasted word for word into every segment, so nothing gets reworded
@@ -37,16 +37,19 @@ from .lc_vision_moviemaker import CUSTOM_PRESET_LABEL, FALLBACK_PRESET, _META_LE
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_content
 
 NODE_ID = "LCVisionDirector"
-NODE_DISPLAY_NAME = "LC Vision Director (BETA) 🎬"
+NODE_DISPLAY_NAME = "LC Vision Showrunner (BETA) 🎬"
 
 PLAN_TYPE = "LC_H3_PLAN"
 MAX_SEGMENTS = 60
 FPS = 24
 WORDS_PER_SECOND = 2.5
+MAX_EXTENDED_S = 10.0  # extend_segments: the longest a long-line segment gets (H3 trained to about 15 s, VRAM grows)
 
 _STYLE_RE = re.compile(r"###STYLE###\s*(.*?)(?=###SEGMENT_\d+###|\Z)", re.DOTALL)
 _SEG_RE = re.compile(r"###SEGMENT_(\d+)###[ \t]*\[?(CUT|CONTINUE)?\]?[ \t]*\n?(.*?)(?=###SEGMENT_\d+###|\Z)", re.DOTALL | re.IGNORECASE)
+_ROLL_RE = re.compile(r"\bthe camera keeps rolling\b", re.I)  # a Shot List shot that carries straight on (no cut)
 _CUT_RE = re.compile(r"\bcuts?\s+(?:back\s+)?to\b|\bscene\s+\d+\b|\blater\s+that\b|\bthe\s+next\s+(?:day|morning)\b", re.I)
+_LEAD_RE = re.compile(r"[\s\"“”'(\[*_-]*(?:(?:and|then|suddenly|meanwhile),?\s+)?", re.I)  # what may come before a sentence-opening cut
 _QUOTE_RE = re.compile(r"[\"“](.+?)[\"”]", re.DOTALL)
 _MOUTH_RE = re.compile(r",?\s*(?:with\s+)?(?:(?:his|her|their)\s+)?(?:mouth|lips)\s+(?:slightly\s+)?(?:open|opening|parted|parting)"
                        r"(?:\s+(?:as if about to speak|in [^,.;]+))?|,?\s*as if about to speak", re.I)
@@ -58,8 +61,184 @@ def snap_frames(seconds: float, minimum: int = 5) -> int:
     return max(minimum, 17 * k + 5)
 
 
+def _line_need(action: str) -> float:
+    """Seconds the longest quoted line needs, with a second of room around it (0 when there is no line)."""
+    words = max((len(q.split()) for q in _QUOTE_RE.findall(action or "")), default=0)
+    return words / WORDS_PER_SECOND + 1.0 if words else 0.0
+
+
+def shot_frames(action: str, cont: bool, seg_frames: int, overlap_frames: int, extend: bool) -> int:
+    """The segment length for one shot: the project's, or (extend) long enough for its line, up to MAX_EXTENDED_S."""
+    base_new = (seg_frames - (overlap_frames if cont else 0)) / FPS
+    need = _line_need(action)
+    if not extend or need <= base_new:
+        return seg_frames
+    want = min(MAX_EXTENDED_S, need) + (overlap_frames / FPS if cont else 0.0)
+    return max(seg_frames, snap_frames(want))
+
+
+_AT_RE = re.compile(r"This shot is at ([^.]+)\.", re.I)
+
+
+_CAST_RE = re.compile(r"\b([A-Z][a-z]+),\s+an?\s+(man|woman|boy|girl|guy|lady)\b")
+_GROUP_RE = re.compile(r"\b(both|two|them|couple|together|everyone|all of them|three|group)\b", re.I)
+_SAY_RE = r"(speaks|says|talks|whispers|murmurs|replies|answers|calls out|continues|adds)"
+
+
+def _solo_line(action: str, names: list) -> bool:
+    """True when the Camera line frames one person."""
+    cam = next((ln for ln in str(action or "").split("\n") if ln.strip().lower().startswith("camera:")), "")
+    if not cam or _GROUP_RE.search(cam):
+        return False
+    hits = [n for n in names if re.search(rf"\b{re.escape(n)}\b", cam)]
+    return len(hits) == 1 or (not hits and len(re.findall(r"\bthe (man|woman|girl|boy|guy|lady)\b", cam, re.I)) == 1)
+
+
+def solo_speech(plan: dict) -> bool:
+    """One person in the frame talks to nobody we can see: "he speaks to her" makes H3 bring her in. Outside the quoted
+    line, "says to her / speaks to Claire" becomes "says / speaks" and "tells her" becomes "says". True when anything
+    changed."""
+    names = [m.group(1) for m in _CAST_RE.finditer(plan.get("story", ""))]
+    who = "|".join(["her", "him", "them", r"the (?:man|woman|other person|others)"] + [re.escape(n) for n in names])
+    to_re = re.compile(rf"\b{_SAY_RE}((?:\s+\w+ly)?)\s+(?:to|at|toward|towards)\s+(?:{who})\b")
+    tell_re = re.compile(rf"\b(tells|asks)\s+(?:{who})\b")
+    changed = False
+    for s in plan.get("shots", []):
+        a = s.get("action", "")
+        if not _solo_line(a, names):
+            continue
+        parts = re.split(r"([\"“][^\"”]*[\"”])", a)  # quoted lines stay as written
+        for k in range(0, len(parts), 2):
+            p = to_re.sub(lambda m: m.group(1) + m.group(2), parts[k])
+            parts[k] = tell_re.sub(lambda m: "says" if m.group(1) == "tells" else "asks", p)
+        new = "".join(parts)
+        if new != a:
+            s["action"] = new
+            changed = True
+    return changed
+
+
+_SAYS_RE = re.compile(r"\b([A-Z][a-z]+|Someone) says [\"“](.+?)[\"”]")
+
+
+def restore_lines(story: str, shots: list, warnings: list | None = None) -> bool:
+    """A Shot List story fixes which shot says which line. When the planner drops one, put it back at the start of
+    that shot's first segment ("At 0.50 seconds, Vince says "..."") instead of only warning, and drop the warning.
+    Skipped when that segment already has a quoted line. True when anything changed."""
+    sl = _shot_list(story, len(shots))
+    if not sl:
+        return False
+    chunks, spans = sl
+    everything = _norm(" ".join(s.get("action", "") for s in shots))
+    changed, first = False, 0
+    for chunk, span in zip(chunks, spans):
+        for m in _SAYS_RE.finditer(chunk):
+            who, line = m.group(1), m.group(2).strip()
+            s = shots[first] if first < len(shots) else None
+            if not s or not _norm(line) or _norm(line) in everything or _QUOTE_RE.search(s.get("action", "")):
+                continue
+            head, sep, body = s["action"].partition("\n\n")
+            said = f"At 0.50 seconds, {who} says \"{line}\""
+            # after a 0.00 opening beat, so the clock still reads in order
+            m0 = re.match(r"(At 0(?:\.0+)? seconds,[^.!?]*[.!?])\s*", body)
+            body = f"{m0.group(1)} {said} {body[m0.end():]}" if m0 else f"{said} {body}"
+            s["action"] = f"{head}\n\n{body}".rstrip() if sep else f"{s['action']}\n\n{said}"
+            s["action"] = re.sub(r"Nobody speaks\.?", "The only voice is the quoted line.", s["action"])
+            everything = _norm(" ".join(x.get("action", "") for x in shots))
+            if warnings is not None:
+                warnings[:] = [w for w in warnings if line not in w]
+            changed = True
+        first += span
+    return changed
+
+
+class LockedPlan(ValueError):
+    """The plan would be written again over segments locked on the Proof Sheet."""
+
+
+def tag_places(plan: dict) -> bool:
+    """A Shot List story says where each shot is ("This shot is at the bank lobby."). Each segment keeps that name
+    (place_name), so LC H3 Segment groups a place's shots exactly instead of guessing from the Place line's wording.
+    True when anything changed."""
+    sl = _shot_list(plan.get("story", ""), len(plan.get("shots", [])))
+    if not sl:
+        return False
+    chunks, spans = sl
+    names, here = [], ""
+    for chunk, span in zip(chunks, spans):
+        m = _AT_RE.search(chunk)
+        here = m.group(1).strip() if m else here
+        names += [here] * span
+    changed = False
+    for s, name in zip(plan.get("shots", []), names):
+        if name and s.get("place_name") != name:
+            s["place_name"] = name
+            changed = True
+    return changed
+
+
+def apply_extend(plan: dict, extend: bool) -> bool:
+    """Per-shot lengths and start times for a plan (a saved one too). True when anything changed."""
+    seg_frames = plan.get("segment_frames") or snap_frames(plan.get("segment_s", 5.0))
+    ovl = plan.get("overlap_frames") or snap_frames(plan.get("overlap_s", 1.6))
+    changed, end = False, 0.0
+    for s in plan.get("shots", []):
+        cont = s.get("mode") == "CONTINUE"
+        f = shot_frames(s.get("action", ""), cont, seg_frames, ovl, extend)
+        if f != seg_frames:
+            changed |= s.get("frames") != f
+            s["frames"] = f
+        elif "frames" in s:
+            s.pop("frames")
+            changed = True
+        start = round(end - plan.get("overlap_s", ovl / FPS), 3) if cont else round(end, 3)
+        changed |= s.get("start_s") != start
+        s["start_s"] = start
+        end = start + f / FPS
+    if extend:
+        keep = []
+        for w in plan.get("warnings", []):
+            m = re.match(r"segment (\d+)'s line is too long", w)
+            if m and int(m.group(1)) <= len(plan["shots"]):
+                sh = plan["shots"][int(m.group(1)) - 1]
+                if _line_need(sh.get("action", "")) <= MAX_EXTENDED_S:
+                    continue  # it got its own longer segment
+            keep.append(w)
+        changed |= len(keep) != len(plan.get("warnings", []))
+        plan["warnings"] = keep
+    return changed
+
+
+_OLD_PLAN_DIR = "old_plan_"
+
+
+def _set_aside_old_renders(folder: str) -> int:
+    """A new plan in a folder that already has renders: those were made for the old plan (other shots, other
+    lengths), and LC H3 Segment would take them as done. Move them (never delete) to takes/old_plan_<time>/."""
+    import shutil
+
+    if not os.path.isdir(folder):
+        return 0
+    name = os.path.basename(folder)
+    pick = lambda d, top: [os.path.join(d, f) for f in os.listdir(d) if os.path.isfile(os.path.join(d, f)) and (  # noqa: E731
+        re.match(r"seg_\d{3}", f) or f.startswith("cast_") or f.startswith(name + "_full") or f == "seams.json"
+    )] if os.path.isdir(d) else []  # finished movies at the top always stay put
+    old = pick(folder, True) + pick(os.path.join(folder, "work"), False) + pick(os.path.join(folder, "takes"), False)
+    segs = len({os.path.basename(f)[:7] for f in old if os.path.basename(f).startswith("seg_") and f.endswith(".json")})
+    if not segs:
+        return 0
+    dest = os.path.join(folder, "takes", _OLD_PLAN_DIR + time.strftime("%Y%m%d_%H%M%S"))
+    os.makedirs(dest, exist_ok=True)
+    for f in old:
+        shutil.move(f, os.path.join(dest, os.path.basename(f)))
+    print(f"[LC Vision] Showrunner: new plan, so the {segs} segments of the old one moved to {dest}.")
+    return segs
+
+
 def project_dir(project: str) -> str:
-    safe = re.sub(r"[^A-Za-z0-9 _.-]", "_", project.strip()) or "untitled"
+    safe = re.sub(r"[^A-Za-z0-9 _.-]", "_", project.strip())
+    if not safe.strip(" ."):  # "" / "." / ".." would be LC_H3 itself or the output folder
+        safe = "untitled"
     return os.path.join(folder_paths.get_output_directory(), "LC_H3", safe)
 
 
@@ -70,7 +249,9 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"joined afterwards, so you plan the whole story at once and write each segment as its own "
         f"prompt.\n\n"
         f"First write a STYLE block, once. It describes what never changes: every person on screen "
-        f"(face, hair, build, clothing, distinguishing details), the camera style and the visual style. "
+        f"(face, hair, build, clothing, distinguishing details), each starting with their name from the story "
+        f"(\"Vince: a tall man ...; Maya: a young woman ...\") and ending with a semicolon, then the camera style and "
+        f"the visual style. "
         f"It does NOT describe the place or the light, because the story can move. It is pasted word "
         f"for word in front of every segment, so the segments themselves must NOT describe anyone's "
         f"appearance again.\n\n"
@@ -78,8 +259,11 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"light there (for example \"Place: a snowy city street at night, neon signs reflecting on wet "
         f"pavement.\" or \"Place: inside a small cafe at night, warm pendant lights, dark snowy street "
         f"outside the windows.\"). The time of day carries over when the place changes (going indoors at "
-        f"night stays night, and windows show it). Keep that line word for word the same while the story "
-        f"stays in one place, and change it the moment the story moves somewhere else. Then the action.\n\n"
+        f"night stays night, and windows show it). It also says who is there besides the cast: the bystanders any "
+        f"shot at that place shows (customers in line, diners, people on the sidewalk), from the FIRST segment at "
+        f"that place, so nobody appears out of nowhere after a cut. Never the camera on this line. Keep that line "
+        f"word for word the same while the story stays in one place, and change it the moment the story moves "
+        f"somewhere else. Then the action.\n\n"
         f"The video is ONE continuous take. Write every segment, tagged CUT or CONTINUE:\n"
         f"- CONTINUE: the camera keeps rolling. The renderer is shown the last {overlap_s:.2f} seconds "
         f"of the previous segment, so this segment picks up exactly where the previous one ended: "
@@ -105,6 +289,11 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"until the story gives the main person something, then the object with its material, color and "
         f"shape (for example \"Holding: a white ceramic mug of hot chocolate with a saucer\"), word for word "
         f"the same in every later segment, until they put it down.\n\n"
+        f"Add nothing the story doesn't do: a gun is never fired, a trigger never pulled, nobody is hit, unless the "
+        f"story says so. Clothing that changes in the story (a mask pulled on, a hood put up) is described in the "
+        f"segment where it changes, saying how it starts and how it ends. When a crowd or bystanders react (duck, "
+        f"run, scream), name the cast in that shot and say what they do instead (\"Vince stands with his pistol "
+        f"raised while the customers drop to the floor\"), or the renderer has them react too.\n\n"
         f"Sound: the third line of every segment is \"Sound: ...\", the soft background ambience of that place "
         f"in a few words (for example \"Sound: a quiet snowy street at night, soft distant traffic.\" or "
         f"\"Sound: the soft hum of a quiet cafe.\"). Keep it low-key: no list of separate noises (footsteps, "
@@ -114,7 +303,9 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"speaks.\" in every other segment. Keep it word for word the same while the place stays the same. "
         f"The renderer makes up talking whenever a mouth moves, so outside a quoted line nobody's mouth "
         f"moves: closed-mouth smiles only, no sighs, no lip movements, no muttering, no sipping. In a segment without "
-        f"a quoted line nobody eats, chews or drinks on screen either: they hold the fork or the glass, mouths closed.\n\n"
+        f"a quoted line nobody eats, chews or drinks on screen either: they hold the fork or the glass, mouths closed. "
+        f"In a shot of one person the line has no listener: write \"he says\", never \"he says to her\" (it brings "
+        f"her into the frame).\n\n"
         f"Camera: the fourth line of every segment is \"Camera: ...\", the shot size and angle (for example "
         f"\"Camera: wide side view of both at the table, at table height.\", \"Camera: close-up of the man, framed "
         f"from the chest up.\" or \"Camera: slow push-in on the two of them.\"). Take it from the story whenever the "
@@ -166,7 +357,7 @@ def _shot_list(story: str, segments: int):
     """A story written as a shot list ("... Cut to a close-up of Daniel. ... Cut back to ..."): the story split at
     every cut, and how many segments each shot gets (at least one; spare segments go to the longest shots). None
     when the story has no cut or more shots than segments."""
-    marks = [m.start() for m in _CUT_RE.finditer(story)]
+    marks = sorted([m.start() for m in _CUT_RE.finditer(story)] + [m.start() for m in _ROLL_RE.finditer(story)])
     if not marks:
         return None
     # sentence starts outside quotes ("They let me go today. Twelve years..." is one line, not two sentences)
@@ -178,11 +369,16 @@ def _shot_list(story: str, segments: int):
                 bounds.append(k + 1)
         elif ch in ".!?\n" and not in_q:
             bounds.append(k + 1)
-    # each cut starts its own shot, from the start of the sentence holding the "cut to"
+    # each cut starts its own shot, but only a cut that opens its sentence ("Cut to the van." / "Then the next day...");
+    # "she says she'll call him the next day" inside an action stays in its shot
     starts = [0]
     for pos in marks:
-        starts.append(max(b for b in bounds if b <= pos))
+        b = max(b for b in bounds if b <= pos)
+        if _LEAD_RE.fullmatch(story[b:pos]):
+            starts.append(b)
     starts = sorted(set(starts))
+    if len(starts) < 2:
+        return None
     chunks = [story[a:b].strip() for a, b in zip(starts, starts[1:] + [len(story)]) if story[a:b].strip()]
     if len(chunks) > segments:
         return None
@@ -200,8 +396,9 @@ def _shot_modes(story: str, segments: int):
     if not sl:
         return None
     modes = []
-    for span in sl[1]:
-        modes += ["CUT"] + ["CONTINUE"] * (span - 1)
+    for k, (chunk, span) in enumerate(zip(*sl)):
+        rolls = k > 0 and _ROLL_RE.match(chunk.strip())  # "The camera keeps rolling ...": no cut into this shot
+        modes += ["CONTINUE" if rolls else "CUT"] + ["CONTINUE"] * (span - 1)
     return modes
 
 
@@ -371,7 +568,7 @@ def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", text.lower()).strip()
 
 
-def _issues(style: str, shots: list, seg_s: float, new_s: float, story: str = "") -> list:
+def _issues(style: str, shots: list, seg_s: float, new_s: float, story: str = "", extend: bool = False) -> list:
     out = []
     if not style:
         out.append("the STYLE block is missing")
@@ -396,6 +593,8 @@ def _issues(style: str, shots: list, seg_s: float, new_s: float, story: str = ""
         if len(lines) > 1:
             out.append(f"segment {i} has {len(lines)} lines of dialogue; one at most")
         for line in lines:
+            if extend and len(line.split()) / WORDS_PER_SECOND + 1.0 <= MAX_EXTENDED_S:
+                continue  # extend_segments gives it a longer segment instead
             if len(line.split()) > WORDS_PER_SECOND * max(1.0, span - 1.0):
                 out.append(f"segment {i}'s line is too long for {span:.2f} seconds; shorten it")
     for i in range(len(shots) - 1):
@@ -449,6 +648,29 @@ def plan_text(plan: dict) -> str:
     return "\n".join(lines)
 
 
+def _fix_next_join(vision_model, plan: dict, seed: int = 0):
+    """Before the next CONTINUE segment is made: look at how the segment before it really ended and rewrite its
+    opening to start from there, so H3 doesn't snap the pose at the join (what LC Vision Redirect did as its own
+    node). Saved into plan.json with the ending it was made from, and reused until that ending changes."""
+    from .lc_vision_redirect import LCVisionRedirect, _resolve_index, _seg_path
+
+    shots = plan.get("shots") or []
+    if not shots:
+        return plan, ""
+    i = _resolve_index(plan, 0)
+    if i == 1 or shots[i - 1].get("mode") != "CONTINUE":
+        return plan, ""
+    if shots[i - 1].get("locked"):  # every segment made: index 0 lands on the last one, whose words a lock keeps
+        return plan, ""
+    if not os.path.exists(_seg_path(project_dir(plan.get("project", "")), i - 1, "_tail.mp4")):
+        return plan, ""
+    try:
+        return LCVisionRedirect()._run(vision_model, plan, 0, True, seed=seed)
+    except Exception as exc:
+        print(f"[LC Vision] Showrunner: could not check the join before segment {i} ({exc}), keeping the plan's text.")
+        return plan, ""
+
+
 class LCVisionDirector:
     @classmethod
     def INPUT_TYPES(cls):
@@ -478,11 +700,12 @@ class LCVisionDirector:
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "repetition_penalty": ("FLOAT", {"default": 1.1, "min": 0.5, "max": 2.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1}),
+                "extend_segments": ("BOOLEAN", {"default": True, "tooltip": "A shot with a long line gets its own longer segment (up to 10 s) instead of a warning to shorten the line. Off: every segment is segment_seconds long."}),
             },
         }
 
-    RETURN_TYPES = (PLAN_TYPE, "STRING")
-    RETURN_NAMES = ("plan", "plan_text")
+    RETURN_TYPES = (PLAN_TYPE, "STRING", "STRING")
+    RETURN_NAMES = ("plan", "plan_text", "project_name")
     FUNCTION = "run"
     CATEGORY = "LC Vision"
     DESCRIPTION = ("Plans a long MiniMax H3 video as a chain of short CUT / CONTINUE segments with one shared style block. "
@@ -490,10 +713,14 @@ class LCVisionDirector:
 
     @classmethod
     def IS_CHANGED(cls, project="", replan=False, **kwargs):
-        if replan:
+        if replan or not isinstance(project, str):  # a project name on a wire isn't handed to IS_CHANGED
             return float("nan")
-        path = os.path.join(project_dir(project), "plan.json")
-        return os.path.getmtime(path) if os.path.exists(path) else ""
+        folder = project_dir(project)
+        path = os.path.join(folder, "plan.json")
+        # the newest saved segment ending too: a new one means the next CONTINUE may need its opening fixed
+        dirs = [folder, os.path.join(folder, "takes"), os.path.join(folder, "work")]
+        tails = [os.path.getmtime(os.path.join(d, f)) for d in dirs if os.path.isdir(d) for f in os.listdir(d) if re.match(r"seg_\d{3}_tail\.mp4$", f)]
+        return f"{os.path.getmtime(path) if os.path.exists(path) else ''}:{max(tails, default=0)}"
 
     def run(self, *args, **kwargs):
         try:
@@ -501,11 +728,35 @@ class LCVisionDirector:
         finally:
             release(kwargs.get("vision_model", args[0] if args else None))
 
-    def _run(self, vision_model: LCVisionModel, project: str, story: str, preset: str, segments: int,
+    def _run(self, vision_model: LCVisionModel, *args, seed: int = 0, **kwargs) -> tuple:
+        project = str(kwargs.get("project", args[0] if args else "") or "").strip()
+        try:
+            plan, text = self._plan(vision_model, *args, seed=seed, **kwargs)
+        except LockedPlan as exc:
+            # not an error: the canvas just holds a different Shot List than the project's plan. Stop quietly and let
+            # the browser offer the way out (📂 Load the project's Shot List, or unlock and plan again)
+            from comfy_execution.graph import ExecutionBlocker
+            msg = str(exc).replace("[LC Vision] Showrunner: ", "")
+            try:
+                from server import PromptServer
+                PromptServer.instance.send_sync("lc_vision_locked_plan", {"project": project, "message": msg},
+                                                getattr(PromptServer.instance, "client_id", None))
+            except Exception:
+                pass
+            print(f"[LC Vision] Showrunner: {msg}")
+            b = ExecutionBlocker(None)
+            return {"ui": {"text": [msg]}, "result": (b, msg, project)}
+        plan, notes = _fix_next_join(vision_model, plan, seed)
+        return (plan, text + ("\n\n" + notes if notes else ""), project)
+
+    def _plan(self, vision_model: LCVisionModel, project: str, story: str, preset: str, segments: int,
              segment_seconds: float, overlap_seconds: float, replan: bool, custom_system_prompt: str = "",
              style_tag: str = "None", reference_image_1=None, reference_image_2=None, reference_image_3=None,
              reference_image_4=None, max_tokens: int = 8192, temperature: float = 0.7, top_p: float = 0.9,
-             repetition_penalty: float = 1.1, seed: int = 0) -> tuple:
+             repetition_penalty: float = 1.1, seed: int = 0, extend_segments: bool = True) -> tuple:
+        if len(str(project)) > 80 or chr(10) in str(project):
+            raise ValueError("[LC Vision] Showrunner: project got a long text (the story?). project is the folder name, "
+                             "like dinner_scene: wire the story into story, not project.")
         segments = max(1, min(MAX_SEGMENTS, int(segments)))
         seg_frames = snap_frames(segment_seconds, minimum=22)
         overlap_frames = min(snap_frames(overlap_seconds), seg_frames - 17)
@@ -522,15 +773,29 @@ class LCVisionDirector:
                 with open(path, "r", encoding="utf-8") as f:
                     saved = json.load(f)
                 if all(saved.get(k) == v for k, v in key.items()):
-                    print(f"[LC Vision] Director: reusing the saved plan for '{project}'.")
+                    print(f"[LC Vision] Showrunner: reusing the saved plan for '{project}'.")
+                    if restore_lines(saved.get("story", ""), saved.get("shots", []), saved.setdefault("warnings", [])) \
+                            | apply_extend(saved, extend_segments) | tag_places(saved) | solo_speech(saved):  # switched on or off since the plan was written
+                        for s in saved.get("shots", []):
+                            if "prompt" in s:
+                                s["prompt"] = f"{saved.get('style', '')}\n\n{s['action']}".strip()
+                        with open(path, "w", encoding="utf-8") as f:
+                            json.dump(saved, f, indent=1, ensure_ascii=False)
                     return (saved, plan_text(saved))
-                print(f"[LC Vision] Director: story or timing changed for '{project}', writing a new plan.")
+                locked = [k for k, sh in enumerate(saved.get("shots", []), start=1) if sh.get("locked")]
+                if locked:  # a new plan sets the renders aside: never over segments you locked
+                    raise LockedPlan(f"[LC Vision] Showrunner: '{project}' has locked segments ({', '.join(map(str, locked))}) and "
+                                     "the story or timing changed, which would write a new plan over them. Unlock them on the "
+                                     "Proof Sheet, or put the Shot List back (↶ Undo there, or 📂 Load the project).")
+                print(f"[LC Vision] Showrunner: story or timing changed for '{project}', writing a new plan.")
+            except LockedPlan:
+                raise
             except Exception as exc:
-                print(f"[LC Vision] Director: could not read {path} ({exc}), writing a new plan.")
+                print(f"[LC Vision] Showrunner: could not read {path} ({exc}), writing a new plan.")
 
         if vision_model is None or (getattr(vision_model, "llm", None) is None
                                     and getattr(vision_model, "build_params", None) is None):
-            raise ValueError("[LC Vision] Director received no model. Connect an LC Vision Loader.")
+            raise ValueError("[LC Vision] Showrunner received no model. Connect an LC Vision Loader.")
 
         references = [reference_image_1, reference_image_2, reference_image_3, reference_image_4]
         reference_count = sum(1 for r in references if r is not None)
@@ -575,27 +840,28 @@ class LCVisionDirector:
                 max_tokens=max_tokens, temperature=temp, top_p=top_p, repeat_penalty=repetition_penalty, seed=seed_val,
             )
             if not response or not response.get("choices"):
-                raise RuntimeError("[LC Vision] Director: the model returned an empty response.")
+                raise RuntimeError("[LC Vision] Showrunner: the model returned an empty response.")
             return strip_thinking(response["choices"][0].get("message", {}).get("content", "") or "")
 
         parsed = _parse(_call(system_prompt, temperature, seed), segments)
-        issues = _issues(parsed[0], parsed[1], seg_s, new_s, story)
+        issues = _issues(parsed[0], parsed[1], seg_s, new_s, story, extend_segments)
         if issues:
-            print(f"[LC Vision] Director: issues on the first pass ({'; '.join(issues)}); retrying once.")
+            print(f"[LC Vision] Showrunner: issues on the first pass ({'; '.join(issues)}); retrying once.")
             retry_prompt = system_prompt + ("\n\nYour previous plan had these problems: " + "; ".join(issues) +
                                             ". Fix exactly these, keep the same output format, and write every segment.")
             retry = _parse(_call(retry_prompt, max(0.2, temperature - 0.2), seed + 1), segments)
-            retry_issues = _issues(retry[0], retry[1], seg_s, new_s, story)
+            retry_issues = _issues(retry[0], retry[1], seg_s, new_s, story, extend_segments)
             # a whole plan with fewer problems wins; mixing segments from two plans can lose or double a line
             if len(retry_issues) < len(issues):
                 parsed, issues = retry, retry_issues
             elif len(retry_issues) == len(issues):
                 merged = _merge(parsed, retry)
-                merged_issues = _issues(merged[0], merged[1], seg_s, new_s, story)
+                merged_issues = _issues(merged[0], merged[1], seg_s, new_s, story, extend_segments)
                 if len(merged_issues) <= len(issues):
                     parsed, issues = merged, merged_issues
 
         style, raw_shots = parsed
+        restore_lines(story, raw_shots, issues)  # a line the planner dropped goes back into its shot
         # each segment is rendered on its own, so "Place: same cafe as before" means nothing to H3: repeat the
         # last full Place line instead
         # the same goes for "Holding: still the same mug" and "Sound: same as before"
@@ -637,19 +903,34 @@ class LCVisionDirector:
             # a CONTINUE segment's first overlap_s is the held tail: its local clock starts after it,
             # and on the final video it starts overlap_s before the previous segment ends
             cont = s["mode"] == "CONTINUE"
-            action = _timed(s["action"], 0.0, new_s if cont else seg_s)  # plain sentences get their beats
-            action = _fit_clock(action, new_s if cont else seg_s)
+            frames_i = shot_frames(s["action"], cont, seg_frames, overlap_frames, extend_segments)
+            len_i = frames_i / FPS
+            span_i = len_i - overlap_s if cont else len_i
+            action = _timed(s["action"], 0.0, span_i)  # plain sentences get their beats
+            action = _fit_clock(action, span_i)
             action = _shift_timestamps(action, overlap_s) if cont else action
             start = end - overlap_s if cont else end
-            end = start + seg_s
-            shots.append({"index": i + 1, "mode": s["mode"], "action": action, "start_s": round(start, 3),
-                          "prompt": f"{style}\n\n{action}".strip()})
+            end = start + len_i
+            shot = {"index": i + 1, "mode": s["mode"], "action": action, "start_s": round(start, 3),
+                    "prompt": f"{style}\n\n{action}".strip()}
+            if frames_i != seg_frames:
+                shot["frames"] = frames_i
+            shots.append(shot)
         plan = {**key, "version": 1, "project": project, "fps": FPS, "segment_s": seg_s, "overlap_s": overlap_s,
                 "style": style, "shots": shots, "warnings": issues, "created": time.strftime("%Y-%m-%d %H:%M:%S")}
+        tag_places(plan)
+        solo_speech(plan)
         os.makedirs(folder, exist_ok=True)
+        moved = _set_aside_old_renders(folder)
+        hist = os.path.join(folder, "takes", "history.json")
+        if os.path.exists(hist):  # ↶ Undo steps of the old plan (edits, cuts, inserts) would land on the new one
+            os.replace(hist, os.path.join(folder, "takes", f"history_old_plan_{time.strftime('%Y%m%d_%H%M%S')}.json"))
         with open(path, "w", encoding="utf-8") as f:
             json.dump(plan, f, indent=1, ensure_ascii=False)
-        return (plan, plan_text(plan))
+        text = plan_text(plan)
+        if moved:
+            text = f"⚠️ New plan: the {moved} segments made for the old one were moved to the takes folder, so they can't mix in.\n\n" + text
+        return (plan, text)
 
 
 NODE_CLASS_MAPPINGS = {

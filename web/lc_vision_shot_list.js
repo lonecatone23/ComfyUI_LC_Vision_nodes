@@ -1,18 +1,20 @@
 /**
  * LC Vision Shot List: the form on the node. A place, the cast (name, man / woman, look) and one card per shot
  * (framing, who it is on, camera move, action, who speaks and the line, what happens after). The rows live in the
- * hidden `shot_list` STRING widget as JSON; Python turns them into the Director's story. Every row is real HTML in
+ * hidden `shot_list` STRING widget as JSON; Python turns them into the Showrunner's story. Every row is real HTML in
  * one addDOMWidget (same pattern as LC LoRA Loader), so it works on the classic canvas and in Nodes 2.0.
  */
 import { app } from "../../scripts/app.js";
 
 const NODE = "LCVisionShotList";
 const MIN_W = 560;
+const MAX_AUTO = 760; // the form grows to this, then scrolls
+const MIN_PANEL = 160; // you can make the node this small; the panel scrolls
 const FRAMINGS = ["wide shot", "side view", "two-shot", "medium shot", "close-up", "extreme close-up", "over the shoulder", "from behind", "custom"];
 const GROUP = new Set(["wide shot", "side view", "two-shot"]);
 const MOVES = ["still", "slow push-in", "slow pull back", "pan", "tracking", "orbit", "handheld"];
 const WHO = ["man", "woman", "boy", "girl", "person"];
-const LONG_LINE = 13; // words; about 10 fits one 5 second segment
+const LONG_LINE = 22; // about 10 s of speech: the longest segment extend_segments makes
 
 const CSS = `
 .lcsl{font:12px Arial,sans-serif;color:#ddd;box-sizing:border-box;padding:6px 8px;display:flex;flex-direction:column;gap:6px}
@@ -90,8 +92,13 @@ function fit(node) {
   if (!node.__lcsl) return;
   requestAnimationFrame(() => {
     if (!node.__lcsl.inner.offsetHeight) return; // hidden: nothing to measure
-    const min = node.computeSize();
-    if (Math.abs(node.size[1] - min[1]) > 0.5) node.setSize([Math.max(node.size[0], MIN_W), min[1]]);
+    // when the content grows (a new row, a longer text), the node grows with it up to MAX_AUTO; past that, or when
+    // you make the node smaller, the panel scrolls. A size you set is kept
+    const contentH = height(node);
+    const grew = contentH > (node.__lcPrevH || 0) + 1;
+    node.__lcPrevH = contentH;
+    const want = node.computeSize()[1] - Math.min(contentH, MIN_PANEL) + Math.min(contentH, MAX_AUTO);
+    if (grew && node.size[1] < want - 0.5) node.setSize([Math.max(node.size[0], MIN_W), want]);
     node.setDirtyCanvas?.(true, true);
   });
 }
@@ -100,6 +107,7 @@ function ensureFace(node) {
   if (node.__lcsl) return node.__lcsl;
   ensureStyle();
   const wrap = document.createElement("div");
+  wrap.style.cssText = "overflow-y:auto;overflow-x:hidden;height:100%;box-sizing:border-box";
   const inner = document.createElement("div");
   inner.className = "lcsl";
   wrap.appendChild(inner);
@@ -113,7 +121,7 @@ function ensureFace(node) {
       if (!wrap.contains(document.activeElement)) render(node);
     }
   });
-  const dom = node.addDOMWidget("lc_shot_list_face", "LC_SHOT_LIST_FACE", wrap, { getMinHeight: () => height(node), serialize: false });
+  const dom = node.addDOMWidget("lc_shot_list_face", "LC_SHOT_LIST_FACE", wrap, { getMinHeight: () => Math.min(height(node), MIN_PANEL), serialize: false });
   dom.serializeValue = () => undefined;
   node.__lcsl = { wrap, inner };
   // the form grows as people type (textareas, new rows): keep the node tall enough to show all of it
@@ -138,14 +146,38 @@ function refNames(node) {
         for (const it of JSON.parse(n.widgets?.find((w) => w.name === "references")?.value || "{}").items || []) {
           const nm = String(it.name || "").trim();
           if (!nm) continue;
-          if (String(it.role || "").startsWith("cast")) out.cast.add(nm);
-          else if (it.role === "setting") out.settings.add(nm);
+          if (it.on === false) continue;
+          if (String(it.role || "").startsWith("cast") || ["face", "full body", "outfit", "voice", "line"].includes(it.role)) out.cast.add(nm);
+          else if (it.role === "setting" || it.role === "layout") out.settings.add(nm); // a named layout = a place anchor
           else if (it.role === "prop") out.props.add(nm);
         }
       } catch (_) {}
     }
   }
   return { cast: [...out.cast], settings: [...out.settings], props: [...out.props] };
+}
+
+// soft warnings for a shot set to keep rolling (same checks as the Python side)
+function rollWarnings(shots, k, names) {
+  const cur = shots[k], prev = shots[k - 1];
+  if (!k || cur?.join !== "roll" || !prev) return [];
+  const out = [];
+  const w0 = String(prev.where || "").trim(), w1 = String(cur.where || "").trim();
+  if (w0 && w1 && w0.toLowerCase() !== w1.toLowerCase())
+    out.push(`Keeps rolling from ${w0} to ${w1}. Possible mismatch: fine if the camera follows them there (through a door), otherwise use a cut.`);
+  const people = (s) => {
+    const text = ["action", "speaker", "after"].map((x) => s[x] || "").join(" ");
+    const set = new Set(names.filter((n) => new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(text)));
+    if (names.includes(s.subject)) set.add(s.subject);
+    return set;
+  };
+  const a = people(prev), b = people(cur);
+  if (a.size && b.size && ![...a].some((n) => b.has(n)))
+    out.push("Keeps rolling, but nobody from the shot before is in it. Possible mismatch: use a cut unless the camera moves from one to the other.");
+  let run = 1;
+  while (k - run >= 1 && shots[k - run]?.join === "roll") run++;
+  if (run === 4) out.push("The 4th shot in a row that keeps rolling. Long takes drift: a cut every few shots keeps faces and the room steady.");
+  return out;
 }
 
 function render(node) {
@@ -157,46 +189,49 @@ function render(node) {
   const missing = R.cast.filter((n) => !names.includes(n));
   const subjectOpts = (s) => opts(["everyone", ...names], names.includes(s.subject) ? s.subject : "everyone", { everyone: names.length > 1 ? "everyone" : "—" });
   face.inner.innerHTML = `
-    <div class="lcsl-h"><span>📍 Place</span></div>
-    <textarea rows="2" data-k="place" placeholder="Where it happens and what is there: the room, the props, the light">${esc(d.place)}</textarea>
-    <div class="lcsl-h"><span>🎭 Cast</span></div>
+    <div class="lcsl-h"><span>📍 Place</span><button class="lcsl-b" data-clear data-tour="🧹 Clear" title="Empty the whole shot list for a new project (the Reference Assembler keeps its pictures)" style="flex:0;white-space:nowrap">🧹 Clear</button></div>
+    <textarea rows="2" data-k="place" data-tour="📍 Place" placeholder="Where it happens and what is there: the room, the props, the light">${esc(d.place)}</textarea>
+    <div class="lcsl-h" data-tour="🎭 Cast"><span>🎭 Cast</span></div>
     ${d.cast.map((c, i) => `<div class="lcsl-row">
         <input data-c="${i}" data-f="name" value="${esc(c.name)}" placeholder="Name" style="width:90px">
         <select data-c="${i}" data-f="who" title="Man, woman, etc. The nodes use it to tell people apart">${opts(WHO, c.who || "man")}</select>
         <input data-c="${i}" data-f="look" value="${esc(c.look)}" placeholder="in his forties with short dark hair and a navy sweater" style="flex:1">
         <button class="lcsl-b" data-del-c="${i}" title="Remove this person">×</button></div>`).join("")}
-    <button class="lcsl-b lcsl-add" data-add="cast">➕ Add person</button>
+    <button class="lcsl-b lcsl-add" data-add="cast" data-tour="➕ Add person">➕ Add person</button>
     ${missing.length ? `<div class="lcsl-row lcsl-tip">🖼️ Reference pictures but not in the cast: ${missing.map((n) => `<button class="lcsl-b" data-add-ref="${esc(n)}" title="Add ${esc(n)} to the cast">➕ ${esc(n)}</button>`).join(" ")}</div>` : ""}
-    <input data-k="setup" value="${esc(d.setup)}" placeholder="What they are doing together, e.g. sit across from each other" title="Finishes the cast sentence">
+    <input data-k="setup" data-tour="what they are doing together" value="${esc(d.setup)}" placeholder="What they are doing together, e.g. sit across from each other" title="Finishes the cast sentence">
     <div class="lcsl-h"><span>🎬 Shots</span><span class="lcsl-tip" style="flex:0;white-space:nowrap;font-weight:400">one short line per shot</span></div>
     ${d.shots.map((s, i) => {
       const group = GROUP.has(s.framing || "wide shot");
       const wc = words(s.line);
-      return `<div class="lcsl-card">
+      const tt = (what) => (i === (what === "✂ cut / 🎞 keep rolling" ? 1 : 0) ? ` data-tour="shot · ${what}"` : ""); // named once
+      return `<div class="lcsl-card" data-tour="shot ${i + 1}">
         <div class="lcsl-row">
           <span class="lcsl-n">${i + 1}</span>
-          <select data-s="${i}" data-f="framing" title="How the shot is framed">${opts(FRAMINGS, s.framing || "wide shot")}</select>
-          <select data-s="${i}" data-f="subject" title="Who the shot is on" ${group && names.length > 1 && (s.subject || "everyone") === "everyone" ? "" : ""}>${subjectOpts(s)}</select>
-          <select data-s="${i}" data-f="move" title="Camera move">${opts(MOVES, s.move || "still")}</select>
+          <select data-s="${i}" data-f="framing"${tt("framing")} title="How the shot is framed">${opts(FRAMINGS, s.framing || "wide shot")}</select>
+          <select data-s="${i}" data-f="subject"${tt("who")} title="Who the shot is on" ${group && names.length > 1 && (s.subject || "everyone") === "everyone" ? "" : ""}>${subjectOpts(s)}</select>
+          <select data-s="${i}" data-f="move"${tt("camera move")} title="Camera move">${opts(MOVES, s.move || "still")}</select>
+          ${i ? `<select data-s="${i}" data-f="join"${tt("✂ cut / 🎞 keep rolling")} title="How this shot starts. cut: a new shot. keep rolling: no cut, the camera carries straight on from the shot before and moves to this framing (one take)">${opts(["cut", "roll"], s.join === "roll" ? "roll" : "cut", { cut: "✂ cut", roll: "🎞 keep rolling" })}</select>` : ""}
           <span style="flex:1"></span>
           <button class="lcsl-b" data-mv="${i}|-1" title="Move up" ${i ? "" : "disabled"}>↑</button>
           <button class="lcsl-b" data-mv="${i}|1" title="Move down" ${i < d.shots.length - 1 ? "" : "disabled"}>↓</button>
           <button class="lcsl-b" data-del-s="${i}" title="Remove this shot">×</button>
         </div>
-        <textarea rows="2" data-s="${i}" data-f="action" placeholder="What happens (before the line)">${esc(s.action)}</textarea>
+        <textarea rows="2" data-s="${i}" data-f="action"${tt("what happens")} placeholder="What happens (before the line)">${esc(s.action)}</textarea>
         <div class="lcsl-row">
-          <select data-s="${i}" data-f="speaker" title="Who says the line" style="width:96px">${opts(["", ...names], s.speaker || "", { "": "no line" })}</select>
-          <input data-s="${i}" data-f="line" value="${esc(s.line)}" placeholder="The line, word for word" style="flex:1">
+          <select data-s="${i}" data-f="speaker"${tt("who says the line")} title="Who says the line" style="width:96px">${opts(["", ...names], s.speaker || "", { "": "no line" })}</select>
+          <input data-s="${i}" data-f="line"${tt("the line")} value="${esc(s.line)}" placeholder="The line, word for word" style="flex:1">
           <span class="lcsl-wc${wc > LONG_LINE ? " long" : ""}" data-wc="${i}">${wc ? `${wc} words` : ""}</span>
         </div>
-        <input data-s="${i}" data-f="after" value="${esc(s.after)}" placeholder="What happens after the line (optional)">
+        <input data-s="${i}" data-f="after"${tt("after the line")} value="${esc(s.after)}" placeholder="What happens after the line (optional)">
+        ${rollWarnings(d.shots, i, names).map((w) => `<div class="lcsl-tip" style="color:#ffd860">⚠️ ${esc(w)}</div>`).join("")}
         ${hasRefs ? `<div class="lcsl-refs">
-          ${R.settings.length ? `<span class="lcsl-tip">📍</span><select data-s="${i}" data-f="where" title="Where this shot is (a setting from the Reference Assembler). Said in the story when it changes.">${opts(["", ...R.settings], s.where || "", { "": i ? "same place" : "setting…" })}</select>` : ""}
+          ${R.settings.length ? `<span class="lcsl-tip">📍</span><select data-s="${i}" data-f="where"${tt("📍 where")} title="Where this shot is (a setting from the Reference Assembler). Said in the story when it changes.">${opts(["", ...R.settings], s.where || "", { "": i ? "same place" : "setting…" })}</select>` : ""}
           ${R.props.map((pr) => `<span class="lcsl-chip${(s.props || []).includes(pr) ? " on" : ""}" data-prop="${i}|${esc(pr)}" title="In this shot: the Segment sends this prop's picture">${esc(pr)}</span>`).join("")}
         </div>` : ""}
       </div>`;
     }).join("")}
-    <button class="lcsl-b lcsl-add" data-add="shot">➕ Add shot</button>`;
+    <button class="lcsl-b lcsl-add" data-add="shot" data-tour="➕ Add shot">➕ Add shot</button>`;
 
   const q = (sel) => face.wrap.querySelectorAll(sel);
   const save = (re) => setData(node, d, re);
@@ -224,7 +259,7 @@ function render(node) {
         if (tag) {
           tag.textContent = wc ? `${wc} words` : "";
           tag.classList.toggle("long", wc > LONG_LINE);
-          tag.title = wc > LONG_LINE ? "About 10 words fits one 5 second segment. Shorten it or split it over two shots." : "";
+          tag.title = wc > LONG_LINE ? "About 22 words fits the longest segment (10 s). Shorten it or split it over two shots." : "";
         }
         // a line with nobody picked: the one person, or the person the shot is on
         if (el.value && !d.shots[i].speaker) {
@@ -268,6 +303,15 @@ function render(node) {
   q("[data-add-ref]").forEach((b) => (b.onclick = () => {
     d.cast.push({ name: b.dataset.addRef, who: "woman", look: "" });
     save(true);
+  }));
+  q("[data-clear]").forEach((b) => (b.onclick = () => {
+    if (b.dataset.sure !== "1") {
+      b.dataset.sure = "1";
+      b.textContent = "Clear it all?";
+      setTimeout(() => { if (b.isConnected) { b.dataset.sure = ""; b.textContent = "🧹 Clear"; } }, 3000);
+      return;
+    }
+    setData(node, { place: "", setup: "", cast: [], shots: [] }, true);
   }));
   q("[data-add]").forEach((b) => (b.onclick = () => {
     if (b.dataset.add === "cast") d.cast.push({ name: "", who: d.cast.length % 2 ? "woman" : "man", look: "" });

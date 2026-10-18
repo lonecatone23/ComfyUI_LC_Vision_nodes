@@ -1,7 +1,7 @@
 """
 LC Vision Redirect
 ------------------
-Sits between LC Vision Director and LC H3 Segment. Before a CONTINUE segment
+Sits between LC Vision Showrunner and LC H3 Segment. Before a CONTINUE segment
 is made, it looks at how the previous segment REALLY ended (its saved tail
 frames) and rewrites the opening of the planned text to start from that
 state. Most jumps at a join come from the plan saying "she opens the door"
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 
@@ -59,9 +60,30 @@ REWRITE = (
 )
 
 
+def work_dir(folder: str) -> str:
+    """Everything a project makes along the way lives in <project>/takes/ (LC AV tidies an older project's loose
+    files in there); the top holds only project.json, plan.json and the finished movie."""
+    takes = os.path.join(folder, "takes")
+    if os.path.isdir(folder):
+        name = os.path.basename(folder)
+        loose = [os.path.join(folder, f) for f in os.listdir(folder)
+                 if os.path.isfile(os.path.join(folder, f)) and (re.match(r"seg_\d{3}", f) or f.startswith("cast_")
+                                                                   or f == "seams.json" or f.startswith(name + "_full"))]
+        old_work = os.path.join(folder, "work")
+        if os.path.isdir(old_work):
+            loose += [os.path.join(old_work, f) for f in os.listdir(old_work)]
+        if loose:
+            os.makedirs(takes, exist_ok=True)
+            for f in loose:
+                os.replace(f, os.path.join(takes, os.path.basename(f)))
+        if os.path.isdir(old_work) and not os.listdir(old_work):
+            os.rmdir(old_work)
+    return takes if os.path.isdir(takes) else folder
+
+
 def _seg_path(folder: str, index: int, suffix: str) -> str:
     """Same file names as the LC_AV segment nodes."""
-    return os.path.join(folder, f"seg_{index:03d}{suffix}")
+    return os.path.join(work_dir(folder), f"seg_{index:03d}{suffix}")
 
 
 def _resolve_index(plan: dict, index: int) -> int:
@@ -128,7 +150,7 @@ class LCVisionRedirect:
         return {
             "required": {
                 "vision_model": (MODEL_TYPE, {"tooltip": "Handle from LC Vision Loader. Only loaded when a segment actually needs redirecting."}),
-                "plan": (PLAN_TYPE, {"tooltip": "From LC Vision Director 🎬."}),
+                "plan": (PLAN_TYPE, {"tooltip": "From LC Vision Showrunner 🎬."}),
                 "index": ("INT", {"default": 0, "min": 0, "max": 60, "tooltip": "Set it the same as LC H3 Segment. 0 = the next segment not saved yet."}),
                 "enabled": ("BOOLEAN", {"default": True, "tooltip": "Off: the plan passes through untouched."}),
             },
@@ -143,8 +165,9 @@ class LCVisionRedirect:
     RETURN_NAMES = ("plan", "notes")
     FUNCTION = "run"
     CATEGORY = "LC Vision"
-    DESCRIPTION = ("Looks at how the previous segment really ended and rewrites the opening of the next CONTINUE "
-                   "segment to start from there, so H3 doesn't snap the pose at the join.")
+    DESCRIPTION = ("LC Vision Showrunner does this itself now; kept so older workflows open. Looks at how the previous segment "
+                   "really ended and rewrites the opening of the next CONTINUE segment to start from there (instant when the "
+                   "Showrunner already did it).")
 
     @classmethod
     def IS_CHANGED(cls, plan=None, index=0, enabled=True, **kwargs):
@@ -207,7 +230,7 @@ class LCVisionRedirect:
         end = _ask(LOOK, content)
         rewritten = _ask(REWRITE, [{"type": "text", "text": f"END STATE: {end}\nPLANNED: {original}\nREWRITE:"}])
         rewritten = rewritten.split("REWRITE:", 1)[-1].strip()
-        problems = _problems(original, rewritten, plan.get("segment_s", 99))
+        problems = _problems(original, rewritten, (shot.get("frames") / 24.0) if shot.get("frames") else plan.get("segment_s", 99))
         if problems:
             print(f"[LC Vision] Redirect: rewrite for segment {i} rejected ({'; '.join(problems)}), keeping the plan's text.")
             rewritten = original
