@@ -51,11 +51,10 @@ async function makePictures(node, only, everything) {
   const b = nodesOf("LCVisionStoryboardBuilder")[0], sv = nodesOf("LCVisionStoryboardSave")[0];
   if (!b || !sv) return toast("This workflow has no Storyboard Builder / Save.", "warn");
   if (b.mode !== 0 || sv.mode !== 0) return toast("Turn on Storyboard Bypass first (the storyboard group is off).", "warn");
-  const ow = widget(b, "only"), mw = widget(b, "make"), sw = widget(b, "seed");
+  const ow = widget(b, "only"), mw = widget(b, "make");
   const keep = [ow?.value, mw?.value];
   if (ow) ow.value = only;
   if (mw) mw.value = everything ? "everything" : "missing only";
-  if (sw && only) sw.value = Math.floor(Math.random() * 2 ** 32); // a redo comes out different
   try {
     await app.queuePrompt(0, 1, [String(sv.id)]); // only the storyboard runs, not the movie
     toast(only ? `Making ${only} again.` : "Making the missing pictures.");
@@ -126,8 +125,14 @@ async function refresh(node) {
       <div class="lcsb-cap"><div class="h">${KIND[c.kind] || c.kind} · ${esc(c.name)}</div>
         <div class="s">${c.inUse ? "✅ in the Reference Assembler" : c.item ? "made, not in use" : c.own ? "you have your own picture" : "missing"}${c.custom ? " · ✎ your words" : ""}</div></div></div>`).join("");
   box.grid.querySelectorAll("[data-use]").forEach((b) => (b.onclick = () => usePicture(node, cards[+b.dataset.use])));
-  box.grid.querySelectorAll("[data-redo]").forEach((b) => (b.onclick = () => {
+  box.grid.querySelectorAll("[data-redo]").forEach((b) => (b.onclick = async () => {
     const c = cards[+b.dataset.redo];
+    // a made picture gets a new take: its seed moves on, even when the Builder's seed is wired from a fixed seed node
+    if (c.item) {
+      const project = await projectName();
+      if (project) await fetch("/lc_vision/storyboard/retake", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project, kind: c.kind, name: c.name }) }).catch(() => {});
+    }
     makePictures(node, `${c.kind}: ${c.name}`, true);
   }));
   box.grid.querySelectorAll("[data-edit]").forEach((b) => (b.onclick = () => {
@@ -178,9 +183,60 @@ function build(node) {
   setTimeout(() => refresh(node), 300);
 }
 
-api.addEventListener("lc_storyboard_saved", () => {
+// a picture made for something the Reference Assembler has nothing for goes straight in (made but never ✅ Used, the
+// lobby shots went out with no picture of the lobby). Anything already covered is left alone: ✅ Use swaps on purpose.
+async function autoUse(detail) {
+  const asm = nodesOf("LCH3ReferenceAssembler")[0];
+  const items = detail?.items || [];
+  if (!asm || !items.length || (detail.project && detail.project !== (await projectName()))) return;
+  const w = widget(asm, "references");
+  let data;
+  try {
+    data = JSON.parse(w.value || "{}");
+  } catch (_e) {
+    return;
+  }
+  const have = data.items || [];
+  const added = [];
+  for (const it of items) {
+    const nm = String(it.name || "").trim().toLowerCase();
+    if (!it.file || !it.role || have.some((x) => x.on !== false && x.role === it.role && String(x.name || "").trim().toLowerCase() === nm)) continue;
+    have.push({ id: it.id, kind: "image", file: it.file, on: true, role: it.role, name: it.name, note: it.note || "", crop: [0, 0, 1, 1], storyboard: true });
+    added.push(`${it.name} (${it.role})`);
+  }
+  if (!added.length) return;
+  w.value = JSON.stringify({ ...data, items: have });
+  asm.onConfigure?.({});
+  app.graph.setDirtyCanvas(true, true);
+  const dir = nodesOf("LCVisionDirector")[0];
+  if (dir) await saveProject(dir, true); // the project file knows right away
+  toast(`In the Reference Assembler now: ${added.join(", ")}.`, "success");
+}
+
+api.addEventListener("lc_storyboard_saved", async (e) => {
+  try {
+    await autoUse(e.detail);
+  } catch (_e) {}
   for (const n of nodesOf(NODE)) setTimeout(() => refresh(n), 500);
 });
+
+// only (set by the Sheet's ↻ / Make missing) and style (free words, style_tag replaces it) stay on the node, hidden:
+// same widget order, so saved workflows load as before
+function hideInternal(node) {
+  for (const name of ["only", "style"]) {
+    const w = node.widgets?.find((x) => x.name === name);
+    if (!w || w._lcHidden) continue;
+    w._lcHidden = true;
+    w.type = "hidden";
+    w.computeSize = () => [0, -4];
+    try {
+      w.hidden = true;
+    } catch (_) {}
+    if (w.options) w.options.hidden = true;
+    if (w.element) w.element.style.display = "none";
+  }
+  node.setSize?.([node.size[0], node.computeSize()[1]]);
+}
 
 // the Storyboard Builder: its project comes in on a socket; the name shows at the bottom, like on the Showrunner
 function builderName(node) {
@@ -217,6 +273,7 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function () {
       const r = created?.apply(this, arguments);
       builderName(this);
+      hideInternal(this);
       return r;
     };
     // a workflow saved when project was a typed field carries its value first: after loading, every setting sits one
@@ -234,6 +291,7 @@ app.registerExtension({
         const ctl = ws.find((w) => w.name === "control_after_generate");
         if (ctl && !ctl.options?.values?.includes(ctl.value)) ctl.value = "fixed";
       }
+      hideInternal(this);
       return r;
     };
     const changed = nodeType.prototype.onConnectionsChange;

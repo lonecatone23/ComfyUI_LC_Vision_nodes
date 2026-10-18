@@ -26,6 +26,8 @@ try:
 except Exception:  # outside ComfyUI (tests)
     folder_paths = None
 
+from .lc_vision_styles import STYLE_TAG_OPTIONS
+
 # per image model: how its prompts read and the sizes it likes (both want plain sentences; Z-Image is set up for
 # when its workflow exists)
 FAMILIES = {
@@ -64,6 +66,19 @@ def _write(path: str, data) -> None:
     os.replace(tmp, path)
 
 
+FROM_SHOWRUNNER = "from Showrunner"
+
+
+def style_words(d: dict, style_tag: str = FROM_SHOWRUNNER, style: str = "") -> str:
+    """The words a style tag adds to an image prompt (the same tags as every Vision node). "from Showrunner" = the
+    project's style_tag, so the pictures match the movie. NSFW is an instruction for a language model, not a look:
+    nothing is added for it."""
+    from .lc_vision_styles import STYLE_TAG_DESCRIPTIONS
+    tag = (d.get("director") or {}).get("style_tag", "None") if style_tag == FROM_SHOWRUNNER else style_tag
+    words = "" if tag in ("None", "NSFW") else STYLE_TAG_DESCRIPTIONS.get(tag, "").replace(" -- ", ", ")
+    return ", ".join(x for x in (words, str(style or "").strip().rstrip(".")) if x)
+
+
 def project_data(project: str) -> dict:
     return _load(os.path.join(_root(), _safe_folder(project), "project.json")) or {}
 
@@ -95,6 +110,23 @@ def set_prompt(project: str, kind: str, name: str, text: str) -> dict:
         pr.pop(key, None)
     _write(path, sb)
     return {"saved": key, "custom": key in pr}
+
+
+def retakes(project: str) -> dict:
+    """How many times each picture was made again with ↻, by "kind:name". Added into its seed, so a redo comes out
+    different even when the seed input is wired from a fixed seed node."""
+    return (_load(_sb_path(project)) or {}).get("takes", {})
+
+
+def add_retake(project: str, kind: str, name: str) -> dict:
+    path = _sb_path(project)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    sb = _load(path) or {"items": []}
+    takes = sb.setdefault("takes", {})
+    key = f"{kind}:{name}"
+    takes[key] = int(takes.get(key, 0)) + 1
+    _write(path, sb)  # storyboard.json changes, so the Builder runs again (IS_CHANGED)
+    return {"take": takes[key]}
 
 
 def storyboard_items(project: str) -> list:
@@ -226,6 +258,9 @@ class LCVisionStoryboardBuilder:
             "optional": {
                 "only": ("STRING", {"default": "", "tooltip": "Optional. Names to make (again), comma separated, like: Earl, the bank lobby. Blank = everything make and the switches allow."}),
                 "style": ("STRING", {"default": "", "multiline": True, "tooltip": "Optional. Words added to every prompt (a film look, a period)."}),
+                "style_tag": ([FROM_SHOWRUNNER] + STYLE_TAG_OPTIONS, {"default": FROM_SHOWRUNNER,
+                              "tooltip": "The look of every picture, the same tags as the other Vision nodes. from Showrunner = "
+                                         "the Showrunner's style_tag, so the pictures match the movie."}),
             },
         }
 
@@ -247,7 +282,7 @@ class LCVisionStoryboardBuilder:
                         for f in ("project.json", "storyboard.json"))
 
     def build(self, project_name, vae, family, make, faces, places, anchors, portrait_size, wide_width, wide_height, seed,
-              only="", style=""):
+              only="", style="", style_tag=FROM_SHOWRUNNER):
         project = str(project_name or "").strip()
         d = project_data(project)
         if not d:
@@ -258,11 +293,16 @@ class LCVisionStoryboardBuilder:
         def picked(w):
             return not names or w["name"].lower() in names or f"{w['kind']}: {w['name']}".lower() in names
 
+        takes = retakes(project)
         jobs = [w for w in wanted(project) if (on[w["kind"]] or names) and (make == "everything" or not w["have"]) and picked(w)]
         custom = prompt_overrides(project)
+        style = style_words(d, style_tag, style)
         have = [w for w in wanted(project) if w["have"]]
         lines = [f"Storyboard for {project} ({family}): {len(jobs)} to make."]
-        lines += [f"  + {w['kind']}: {w['name']}" for w in jobs]
+        for w in jobs:  # say when your ✎ words and a ↻ take are used, so you can see it on the node
+            k = f"{w['kind']}:{w['name']}"
+            lines.append(f"  + {w['kind']}: {w['name']}" + (f"  (take {takes[k] + 1})" if takes.get(k) else "")
+                         + (f"\n      ✎ your words: {custom[k][:100]}" if k in custom else ""))
         if have:
             lines.append("Already there: " + ", ".join(f"{w['kind']} {w['name']}" for w in have) + ".")
         summary = "\n".join(lines)
@@ -278,7 +318,8 @@ class LCVisionStoryboardBuilder:
             wd, ht = _size(w["kind"], family, portrait_size, wide_width, wide_height)
             lat.append({"samples": torch.zeros([1, ch, ht // down, wd // down])})
             prompts.append(custom.get(f"{w['kind']}:{w['name']}") or build_prompt(w["kind"], w["name"], d, family, style))
-            seeds.append((int(seed) + zlib.crc32(f"{w['kind']}:{w['name']}".encode())) % 0xffffffffffffffff)
+            key = f"{w['kind']}:{w['name']}"
+            seeds.append((int(seed) + zlib.crc32(key.encode()) + 1000003 * int(takes.get(key, 0))) % 0xffffffffffffffff)
             out_jobs.append(json.dumps({"project": project, "kind": w["kind"], "name": w["name"], "family": family}))
         return {"ui": {"text": [summary]}, "result": (lat, prompts, seeds, out_jobs, summary)}
 
@@ -338,7 +379,7 @@ class LCVisionStoryboardSave:
     def save(self, images, job):
         imgs = [im[k:k + 1] for im in images for k in range(im.shape[0])]
         saved, tiles = save_pictures(imgs, job)
-        lines = [f"Saved {len(saved)} picture(s). ✅ Use on the Storyboard Sheet puts one in the Reference Assembler."]
+        lines = [f"Saved {len(saved)} picture(s). One for something the Reference Assembler has nothing for goes in by itself; ✅ Use swaps one in."]
         lines += [f"  {it['role']}: {it['name']}  ({it['file']})" for it in saved]
         summary = "\n".join(lines)
         h = 320
@@ -382,7 +423,7 @@ def sheet_status(project: str) -> dict:
         cards.append({"kind": w["kind"], "name": w["name"], "role": role, "item": it if url else None, "url": url,
                       "used": bool(it) and any(x.get("file") == it["file"] for x in refs), "own": bool(own),
                       "custom": f"{w['kind']}:{w['name']}" in custom,
-                      "prompt": custom.get(f"{w['kind']}:{w['name']}") or build_prompt(w["kind"], w["name"], d)})
+                      "prompt": custom.get(f"{w['kind']}:{w['name']}") or build_prompt(w["kind"], w["name"], d, style=style_words(d))})
     return {"project": project, "cards": cards}
 
 
@@ -420,6 +461,14 @@ def _routes():
         try:
             b = await request.json()
             return web.json_response(set_prompt(str(b.get("project", "")), str(b.get("kind", "")), str(b.get("name", "")), b.get("prompt", "")))
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+    @PromptServer.instance.routes.post("/lc_vision/storyboard/retake")
+    async def _retake(request):
+        try:
+            b = await request.json()
+            return web.json_response(add_retake(str(b.get("project", "")), str(b.get("kind", "")), str(b.get("name", ""))))
         except Exception as exc:
             return web.json_response({"error": str(exc)}, status=400)
 

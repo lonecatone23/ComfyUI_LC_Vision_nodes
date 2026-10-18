@@ -142,7 +142,7 @@ export async function runReport() {
 
 // ------------------------------------------------------------------ what model is this workflow using
 const FAMILY_HINTS = [
-  [/krea.?2|krealism|animosity_krea/i, "krea2"], [/anima/i, "anima"], [/klein/i, "flux2_klein_9b"],
+  [/moss.?image/i, "moss_image"], [/krea.?2|krealism|animosity_krea/i, "krea2"], [/anima/i, "anima"], [/klein/i, "flux2_klein_9b"],
   [/qwen.?image.?2\.?1|qwen21/i, "qwen_image_21"], [/z.?image|zit/i, "z_image_turbo"], [/ltx.?2\.?5/i, "ltx25"],
   [/ltx.?2\.?3/i, "ltx23"], [/minimax|_h3_/i, "minimax_h3"], [/ideogram/i, "ideogram4"],
   [/illustrious|ilxl|noob/i, "illustrious"], [/pony/i, "pony"], [/sdxl|_xl/i, "sdxl"],
@@ -288,7 +288,7 @@ export async function checkModelFormat() {
     const pickFmt = prefer.find((f) => QUANT_LABEL[f] && !NEEDS.some(([rx, gens]) => rx.test(f) && !gens.includes(sys.gen)) && (!full || ok(full * SIZE(f)))) || "gguf_q4_k_m";
     // a known file of the same model that runs here: best format first (the report's order), then the smaller file
     const rank = (f) => { const i = prefer.findIndex((p) => f === p || f.startsWith(p)); return i < 0 ? 99 : i; };
-    const runs = (v) => v.file.toLowerCase() !== base(file).toLowerCase() && ok(v.gb) && !NEEDS.some(([rx, gens]) => rx.test(v.format) && !gens.includes(sys.gen))
+    const runs = (v) => !v.alias && v.file.toLowerCase() !== base(file).toLowerCase() && ok(v.gb) && !NEEDS.some(([rx, gens]) => rx.test(v.format) && !gens.includes(sys.gen))
       && (bad ? v.format !== cur : true) && (wasteful ? v.format !== "fp32" : true);
     const sib = curV && vs.filter(runs).sort((x, y) => rank(x.format) - rank(y.format) || (x.gb || 0) - (y.gb || 0))[0];
     const why = bad ? `It's ${FMT_NAME(cur)}, which ${bad[2]}.`

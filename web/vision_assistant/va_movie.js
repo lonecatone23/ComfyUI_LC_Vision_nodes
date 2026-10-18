@@ -5,20 +5,41 @@ import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { projectSource } from "../lc_vision_project.js";
 
-// video sound: off until you turn it on, then remembered (in this browser) for every LC video player
+// video sound: off until you turn it on, then remembered (in this browser) and shared by every LC video player.
+// Muting one mutes them all, and a player that loads a new video (the next segment) picks up the current setting.
 function lcSound(v) {
-  const KEY = "lc.video.sound";
-  let on = false;
+  const KEY = "lc.video.sound", VOL = "lc.video.volume";
+  const players = (window.__lcVideoPlayers ||= new Set());
+  let on = false, vol = 1;
   try {
     on = localStorage.getItem(KEY) === "on";
+    vol = Math.min(1, Math.max(0, parseFloat(localStorage.getItem(VOL) ?? "1")));
   } catch (_e) {}
+  v.__lcSoundSync = true; // a change made here, not by the viewer: don't spread it
   v.muted = !on;
+  if (Number.isFinite(vol)) v.volume = vol;
+  setTimeout(() => (v.__lcSoundSync = false), 0); // volumechange arrives after this returns
+  players.add(v);
   if (!v.__lcSound) {
     v.__lcSound = true;
     v.addEventListener("volumechange", () => {
+      if (v.__lcSoundSync) return;
       try {
         localStorage.setItem(KEY, v.muted ? "off" : "on");
+        localStorage.setItem(VOL, String(v.volume));
       } catch (_e) {}
+      for (const o of players) {
+        if (!o.isConnected) {
+          players.delete(o);
+          continue;
+        }
+        if (o !== v && (o.muted !== v.muted || o.volume !== v.volume)) {
+          o.__lcSoundSync = true;
+          o.muted = v.muted;
+          o.volume = v.volume;
+          setTimeout(() => (o.__lcSoundSync = false), 0);
+        }
+      }
     });
   }
   return v;
@@ -185,7 +206,7 @@ export function render(body, { toast, rerender, askChat }) {
     <div class="va-row" style="border-top:0;padding-top:0"><div class="va-grow"><div class="va-name">🎬 ${esc(d.project)}</div>
       <div class="va-sub">${done.length} of ${segs.length} segments made · ${secs.toFixed(1)} s so far</div></div>${picker}
       <button class="va-dots" data-m="reload" title="Refresh">⟳</button></div>
-    ${d.full ? `<video class="va-video" src="${view(d.full, bust, st.data.work_subfolder || st.data.subfolder)}" controls preload="metadata" style="width:100%;border-radius:8px;background:#000"></video>
+    ${d.full ? `<video muted class="va-video" src="${view(d.full, bust, st.data.work_subfolder || st.data.subfolder)}" controls preload="metadata" style="width:100%;border-radius:8px;background:#000"></video>
       <div class="va-sub">${d.full_outdated ? "⚠️ Older than the latest segments. Join again to update it." : "The joined video."}</div>` : ""}
     <div class="va-group">Checkup</div>
     ${probs.length ? probs.map((p, k) => `<div class="va-card l${p.lvl}"><div class="va-name">${esc(p.title)}</div><div class="va-hint">${esc(p.text)}</div>
@@ -202,7 +223,7 @@ export function render(body, { toast, rerender, askChat }) {
         ${s.index > 1 && s.face?.match != null ? `<span class="va-fit ${s.face.match >= d.face_same ? "ok" : s.face.match >= d.face_close ? "part" : "no"}" title="Face match to segment 1 (0 to 1)">face ${s.face.match.toFixed(2)} ${faceWord(s.face.match, d)}</span>` : ""}
         ${s.stale ? `<span class="va-fit no">out of line</span>` : ""}</div>
         <div class="va-sub" style="white-space:normal">${esc(shotLine(s.action))}</div>
-        ${st.playing === String(s.index) ? `<video src="${view(segFile(s.index), Math.round(s.modified || 0), st.data.work_subfolder || st.data.subfolder)}" controls autoplay style="width:100%;border-radius:6px;margin-top:4px;background:#000"></video>` : ""}</div>
+        ${st.playing === String(s.index) ? `<video muted src="${view(segFile(s.index), Math.round(s.modified || 0), st.data.work_subfolder || st.data.subfolder)}" controls autoplay style="width:100%;border-radius:6px;margin-top:4px;background:#000"></video>` : ""}</div>
       ${s.done ? `<button class="va-dots" data-redo="${s.index}" title="Redo segment ${s.index} with a new seed">↻</button>` : ""}</div>`).join("")}</div>
     <button class="va-btn wide" data-m="ask" title="Open Chat with this project's numbers, to ask what to do">Ask about this movie</button>`;
 
