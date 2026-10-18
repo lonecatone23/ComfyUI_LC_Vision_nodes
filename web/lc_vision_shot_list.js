@@ -164,7 +164,7 @@ function rollWarnings(shots, k, names) {
   const out = [];
   const w0 = String(prev.where || "").trim(), w1 = String(cur.where || "").trim();
   if (w0 && w1 && w0.toLowerCase() !== w1.toLowerCase())
-    out.push(`Keeps rolling from ${w0} to ${w1}. Possible mismatch: fine if the camera follows them there (through a door), otherwise use a cut.`);
+    out.push(`⚠️ Keeps rolling from ${w0} to ${w1}. Possible mismatch: fine if the camera follows them there (through a door), otherwise use a cut.`);
   const people = (s) => {
     const text = ["action", "speaker", "after"].map((x) => s[x] || "").join(" ");
     const set = new Set(names.filter((n) => new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(text)));
@@ -173,10 +173,10 @@ function rollWarnings(shots, k, names) {
   };
   const a = people(prev), b = people(cur);
   if (a.size && b.size && ![...a].some((n) => b.has(n)))
-    out.push("Keeps rolling, but nobody from the shot before is in it. Possible mismatch: use a cut unless the camera moves from one to the other.");
+    out.push("⚠️ Keeps rolling, but nobody from the shot before is in it. Possible mismatch: use a cut unless the camera moves from one to the other.");
   let run = 1;
   while (k - run >= 1 && shots[k - run]?.join === "roll") run++;
-  if (run === 4) out.push("The 4th shot in a row that keeps rolling. Long takes drift: a cut every few shots keeps faces and the room steady.");
+  if (run === 4) out.push("💡 The 4th shot in a row that keeps rolling. Long takes drift: a cut every few shots keeps faces and the room steady.");
   return out;
 }
 
@@ -224,7 +224,7 @@ function render(node) {
           <span class="lcsl-wc${wc > LONG_LINE ? " long" : ""}" data-wc="${i}">${wc ? `${wc} words` : ""}</span>
         </div>
         <input data-s="${i}" data-f="after"${tt("after the line")} value="${esc(s.after)}" placeholder="What happens after the line (optional)">
-        ${rollWarnings(d.shots, i, names).map((w) => `<div class="lcsl-tip" style="color:#ffd860">⚠️ ${esc(w)}</div>`).join("")}
+        ${rollWarnings(d.shots, i, names).map((w) => `<div class="lcsl-tip" style="color:${w.startsWith("💡") ? "#9fd3ff" : "#ffd860"}">${esc(w)}</div>`).join("")}
         ${hasRefs ? `<div class="lcsl-refs">
           ${R.settings.length ? `<span class="lcsl-tip">📍</span><select data-s="${i}" data-f="where"${tt("📍 where")} title="Where this shot is (a setting from the Reference Assembler). Said in the story when it changes.">${opts(["", ...R.settings], s.where || "", { "": i ? "same place" : "setting…" })}</select>` : ""}
           ${R.props.map((pr) => `<span class="lcsl-chip${(s.props || []).includes(pr) ? " on" : ""}" data-prop="${i}|${esc(pr)}" title="In this shot: the Segment sends this prop's picture">${esc(pr)}</span>`).join("")}

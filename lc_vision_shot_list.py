@@ -108,14 +108,14 @@ def _shot_seconds(shot: dict) -> float:
 
 
 def roll_warnings(shots: list, k: int, names: list) -> list:
-    """Soft warnings for shot k (0-based) set to keep rolling: a different place, nobody from the shot before, or a
-    take that has kept rolling for more than 3 shots."""
+    """Soft warnings for shot k (0-based) set to keep rolling, as (emoji, text): a different place, nobody from the
+    shot before, or a take that has kept rolling for more than 3 shots."""
     out = []
     prev, cur = shots[k - 1], shots[k]
     w0, w1 = str(prev.get("where") or "").strip(), str(cur.get("where") or "").strip()
     if w0 and w1 and w0.lower() != w1.lower():
-        out.append(f"keeps rolling from {w0} to {w1}. Possible mismatch: fine if the camera follows them there "
-                   "(through a door), otherwise use a cut.")
+        out.append(("⚠️", f"keeps rolling from {w0} to {w1}. Possible mismatch: fine if the camera follows them there "
+                   "(through a door), otherwise use a cut."))
 
     def people(s):
         text = " ".join(str(s.get(x) or "") for x in ("action", "speaker", "after"))
@@ -123,14 +123,14 @@ def roll_warnings(shots: list, k: int, names: list) -> list:
 
     a, b = people(prev), people(cur)
     if a and b and not (a & b):
-        out.append("keeps rolling, but nobody from the shot before is in it. Possible mismatch: use a cut unless "
-                   "the camera moves from one to the other.")
+        out.append(("⚠️", "keeps rolling, but nobody from the shot before is in it. Possible mismatch: use a cut unless "
+                   "the camera moves from one to the other."))
     run = 1
     while k - run >= 1 and shots[k - run].get("join") == "roll":
         run += 1
     if run == 4:  # said once, on the 4th shot in a row
-        out.append("is the 4th shot in a row that keeps rolling. Long takes drift: a cut every few shots keeps "
-                   "faces and the room steady.")
+        out.append(("💡", "is the 4th shot in a row that keeps rolling. Long takes drift: a cut every few shots keeps "
+                   "faces and the room steady."))
     return out
 
 
@@ -146,7 +146,7 @@ def build(data: dict):
     if str(data.get("place", "")).strip():
         parts.append(_sentence(data["place"]))
     else:
-        warn.append("Add a place: where it happens and what is there (the table, the props, the light).")
+        warn.append("📍 Add a place: where it happens and what is there (the table, the props, the light).")
     if cast:
         people = [f"{c['name']}, a {c.get('who') or 'person'}" + (f" {c['look'].strip()}" if str(c.get("look", "")).strip() else "") for c in cast]
         joined = people[0] if len(people) == 1 else (", and ".join(people) if len(people) == 2 else ", ".join(people[:-1]) + ", and " + people[-1])
@@ -155,9 +155,9 @@ def build(data: dict):
         parts.append(f"{joined}, {setup}.")
         for c in cast:
             if not re.match(r"[A-Z]", c["name"]):
-                warn.append(f"Start the name \"{c['name']}\" with a capital letter. The nodes find people by their names.")
+                warn.append(f"🔠 Start the name \"{c['name']}\" with a capital letter. The nodes find people by their names.")
     else:
-        warn.append("Add the cast: a name and man / woman for each person. The names keep faces and voices apart across cuts.")
+        warn.append("🎭 Add the cast: a name and man / woman for each person. The names keep faces and voices apart across cuts.")
     seen = []
     segments = 0
     where_now = ""
@@ -190,26 +190,26 @@ def build(data: dict):
             if not speaker:
                 speaker = names[0] if len(names) == 1 else ""
                 if not speaker:
-                    warn.append(f"Shot {i}: pick who says the line.")
+                    warn.append(f"🛑 Shot {i}: pick who says the line.")
             elif speaker not in names:
-                warn.append(f"Shot {i}: {speaker} is not in the cast.")
+                warn.append(f"🛑 Shot {i}: {speaker} is not in the cast.")
             bits.append(f"{speaker or 'Someone'} says \"{line}\"")
             n = _words(line)
             if n > 22:
-                warn.append(f"Shot {i}: the line is {n} words. About 22 fits the longest segment (10 s), so it may run long. Shorten it or split it over two shots.")
+                warn.append(f"⏱️ Shot {i}: the line is {n} words. About 22 fits the longest segment (10 s), so it may run long. Shorten it or split it over two shots.")
         bits.append(_sentence(s.get("after")))
         if s.get("framing") not in GROUP_FRAMINGS and s.get("framing") != "custom" and (s.get("subject") or "everyone") not in names and len(names) > 1 \
                 and not any(re.search(rf"\b{re.escape(n)}\b", str(s.get("action") or "")) for n in names):
-            warn.append(f"Shot {i}: pick who the {s.get('framing') or 'shot'} is on.")
+            warn.append(f"🎯 Shot {i}: pick who the {s.get('framing') or 'shot'} is on.")
         parts.append(" ".join(b for b in bits if b).strip())
         if i > 1 and s.get("join") == "roll":
-            for w in roll_warnings(shots, i - 1, names):
-                warn.append(f"Shot {i}: {w}")
+            for mark, w in roll_warnings(shots, i - 1, names):
+                warn.append(f"{mark} Shot {i}: {w}")
         sec = _shot_seconds(s)
         # one segment per shot; only a shot longer than an extended segment can hold gets more
         segments += 1 if sec <= MAX_SHOT_S else 1 + math.ceil((sec - MAX_SHOT_S) / CONT_S)
     if not shots:
-        warn.append("Add at least one shot.")
+        warn.append("🛑 Add at least one shot.")
     story = " ".join(p for p in parts if p).strip()
     return story, max(1, segments), warn
 
@@ -244,8 +244,8 @@ class LCVisionShotList:
         story, segments, warn = build(data if isinstance(data, dict) else {})
         if warn:
             print("[LC Vision] Shot List: " + " | ".join(warn))
-        text = "\n".join(f"- {w}" for w in warn)
-        return {"ui": {"text": [text or "✓ Ready for the Showrunner."]}, "result": (story, segments, text)}
+        text = "\n".join(warn)  # one per line, led by its emoji (🛑 must fix, ⚠️ possible mismatch, 💡 advice)
+        return {"ui": {"text": [text or "✅ Ready for the Showrunner."]}, "result": (story, segments, text)}
 
 
 NODE_CLASS_MAPPINGS = {"LCVisionShotList": LCVisionShotList}
