@@ -25,6 +25,18 @@ def reset_model_state(llm: Any) -> None:
         except Exception as exc:
             print(f"[LC Vision] context reset skipped: {exc}")
 
+    # older llama-cpp-python builds only rewind n_tokens in reset() and leave the KV cache full: the next prompt at
+    # position 0 then fails with "llama_decode failed (code -1)" on every reused instance. Clear it here too.
+    ctx = getattr(llm, "_ctx", None)
+    for name, args in (("memory_clear", (True,)), ("kv_cache_clear", ())):
+        fn = getattr(ctx, name, None)
+        if fn is not None:
+            try:
+                fn(*args)
+            except Exception as exc:
+                print(f"[LC Vision] {name} skipped: {exc}")
+            break
+
     cache_mgr = getattr(llm, "_hybrid_cache_mgr", None)
     if cache_mgr is not None and hasattr(cache_mgr, "clear"):
         try:

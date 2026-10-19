@@ -9,6 +9,7 @@ const MANY_IMAGES = 16; // more than this in one go gets a question
 const BIG_PIXELS = 4.2e6; // about 2048 x 2048
 const HIGH_UPSCALE = 3.0;
 const MANY_STEPS = 60;
+const BIG_BATCH = 4; // a big upscale or big pictures only get a question from this many images up
 
 const nodes = () => (app.graph?._nodes || []).filter((n) => n.mode !== 2 && n.mode !== 4); // muted / bypassed nodes don't run
 const label = (n) => (n.title && n.title !== n.type ? n.title : (n.constructor?.title || n.type));
@@ -87,10 +88,10 @@ export function findings(info, changedSince) {
       + "every run makes the same picture. Set it to increment or randomize." + info.fixedSeeds.map((s) => was(s.node, "control_after_generate")).join("") });
   }
   const outPx = info.size ? info.size.px * (info.upscale ? info.upscale.value ** 2 : 1) : null;
-  if (info.upscale && info.upscale.value >= HIGH_UPSCALE && info.images > 1) {
+  if (info.upscale && info.upscale.value >= HIGH_UPSCALE && info.images >= BIG_BATCH) {
     out.push({ lvl: 3, text: `${label(info.upscale.node)} upscales ${info.upscale.value}x${was(info.upscale.node, info.upscale.name)}, on ${info.images} images`
       + (outPx ? ` (each about ${Math.round(Math.sqrt(outPx * info.size.w / info.size.h))} x ${Math.round(Math.sqrt(outPx * info.size.h / info.size.w))}).` : ".") });
-  } else if (outPx && outPx > BIG_PIXELS && info.images > 1) {
+  } else if (outPx && outPx > BIG_PIXELS && info.images >= BIG_BATCH) {
     out.push({ lvl: 3, text: `${info.images} images at about ${(outPx / 1e6).toFixed(1)} megapixels each${was(info.size.node, info.size.name)}.` });
   }
   if (info.steps && info.steps.value > MANY_STEPS) {
