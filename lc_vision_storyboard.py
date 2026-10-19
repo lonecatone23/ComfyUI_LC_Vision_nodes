@@ -178,9 +178,23 @@ def missing(project: str) -> list:
     return [w for w in wanted(project) if not w["have"]]
 
 
+# image models read a plain "ski mask" on a calm portrait as a surgical mask: spell the balaclava out
+_SKI_MASK = re.compile(r"\bski[- ]?mask\b(?! \()", re.I)
+
+# a ↻ redo of a face only moves the seed, and a low-cfg model barely changes with the seed: each take adds a
+# different face to the same look
+_TAKE_FACES = (
+    "a narrow face with high cheekbones", "a broad face and a square jaw", "deep-set eyes and heavy brows",
+    "a long face and a crooked nose", "a round face and soft features", "sharp features and thin lips",
+    "a weathered face with deep lines", "wide-set eyes and a strong chin", "a gaunt face and hollow cheeks",
+    "a heavy brow and a flat nose",
+)
+
+
 def _look(c: dict) -> str:
     who = str(c.get("who") or "person").strip()
     look = str(c.get("look") or "").strip().rstrip(".")
+    look = _SKI_MASK.sub("ski mask (a knitted balaclava over the whole head and face, only the eyes showing)", look)
     return f"a {who}, {look}" if look else f"a {who}"
 
 
@@ -204,7 +218,7 @@ def _sentences(text: str) -> str:
     return re.sub(r"(^|[.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), text)
 
 
-def build_prompt(kind: str, name: str, d: dict, family: str = "Krea 2", style: str = "") -> str:
+def build_prompt(kind: str, name: str, d: dict, family: str = "Krea 2", style: str = "", take: int = 0) -> str:
     """The image prompt for one picture, in plain sentences from the Shot List's own words."""
     sl = d.get("shot_list") or {}
     cast = [c for c in (sl.get("cast") or []) if str(c.get("name", "")).strip()]
@@ -213,7 +227,8 @@ def build_prompt(kind: str, name: str, d: dict, family: str = "Krea 2", style: s
     extra = f" {style.strip().rstrip('.')}." if style.strip() else ""
     if kind == "face":
         c = next((c for c in cast if c["name"].strip() == name), {"who": "person", "look": ""})
-        return _sentences(f"A head and shoulders portrait photo of {_look(c)}. Looking straight at the camera with a "
+        face = f" {_TAKE_FACES[(take - 1) % len(_TAKE_FACES)].capitalize()}." if take > 0 else ""
+        return _sentences(f"A head and shoulders portrait photo of {_look(c)}.{face} Looking straight at the camera with a "
                           f"calm, neutral expression, soft even light, plain light grey background.{extra} {suffix}")
     shots = [s for s in sl.get("shots") or [] if str(s.get("where") or "").strip().lower() == name.lower()]
     where = _place_words(place, name)
@@ -245,14 +260,14 @@ class LCVisionStoryboardBuilder:
             "required": {
                 "project_name": ("STRING", {"forceInput": True, "tooltip": "The project: wire LC Vision Showrunner's project_name output."}),
                 "vae": ("VAE", {"tooltip": "The image model's VAE: sets the size of the empty latents."}),
-                "family": (list(FAMILIES), {"default": "Krea 2", "tooltip": "The image model, for how the prompts read and the sizes it likes."}),
+                "base_model": (list(FAMILIES), {"default": "Krea 2", "tooltip": "The image model, for how the prompts read and the sizes it likes."}),
                 "make": (["missing only", "everything"], {"default": "missing only", "tooltip": "missing only: just the pictures the project doesn't have yet. everything: all of them again (your own pictures are never replaced)."}),
                 "faces": ("BOOLEAN", {"default": True, "tooltip": "A head and shoulders portrait of each cast member, from their look."}),
                 "places": ("BOOLEAN", {"default": True, "tooltip": "An empty establishing picture of each place in the Shot List."}),
                 "anchors": ("BOOLEAN", {"default": True, "tooltip": "The opening wide shot of each place with several people, with the people in place: holds the room and who stands where."}),
-                "portrait_size": ("INT", {"default": 1024, "min": 512, "max": 2048, "step": 16}),
-                "wide_width": ("INT", {"default": 1344, "min": 512, "max": 2560, "step": 16, "tooltip": "Places and anchors. 1344 x 768 matches the movie's 960 x 544 shape."}),
-                "wide_height": ("INT", {"default": 768, "min": 512, "max": 2048, "step": 16}),
+                "portrait_size": ("INT", {"default": 1024, "min": 512, "max": 2048, "step": 16, "tooltip": "Square size of the cast portraits."}),
+                "landscape_width": ("INT", {"default": 1344, "min": 512, "max": 2560, "step": 16, "tooltip": "Width of the place pictures and anchors. 1344 x 768 matches the movie's 960 x 544 shape."}),
+                "landscape_height": ("INT", {"default": 768, "min": 512, "max": 2048, "step": 16, "tooltip": "Height of the place pictures and anchors."}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Each picture's seed comes from this plus its name, so a redo of one picture keeps the others."}),
             },
             "optional": {
@@ -281,8 +296,9 @@ class LCVisionStoryboardBuilder:
         return "|".join(str(os.path.getmtime(os.path.join(folder, f))) if os.path.exists(os.path.join(folder, f)) else "-"
                         for f in ("project.json", "storyboard.json"))
 
-    def build(self, project_name, vae, family, make, faces, places, anchors, portrait_size, wide_width, wide_height, seed,
-              only="", style="", style_tag=FROM_SHOWRUNNER):
+    def build(self, project_name, vae, base_model, make, faces, places, anchors, portrait_size, landscape_width,
+              landscape_height, seed, only="", style="", style_tag=FROM_SHOWRUNNER):
+        family = base_model
         project = str(project_name or "").strip()
         d = project_data(project)
         if not d:
@@ -315,10 +331,10 @@ class LCVisionStoryboardBuilder:
         down = vae.spacial_compression_encode() if hasattr(vae, "spacial_compression_encode") else 8
         lat, prompts, seeds, out_jobs = [], [], [], []
         for w in jobs:
-            wd, ht = _size(w["kind"], family, portrait_size, wide_width, wide_height)
+            wd, ht = _size(w["kind"], family, portrait_size, landscape_width, landscape_height)
             lat.append({"samples": torch.zeros([1, ch, ht // down, wd // down])})
-            prompts.append(custom.get(f"{w['kind']}:{w['name']}") or build_prompt(w["kind"], w["name"], d, family, style))
             key = f"{w['kind']}:{w['name']}"
+            prompts.append(custom.get(key) or build_prompt(w["kind"], w["name"], d, family, style, int(takes.get(key, 0))))
             seeds.append((int(seed) + zlib.crc32(key.encode()) + 1000003 * int(takes.get(key, 0))) % 0xffffffffffffffff)
             out_jobs.append(json.dumps({"project": project, "kind": w["kind"], "name": w["name"], "family": family}))
         return {"ui": {"text": [summary]}, "result": (lat, prompts, seeds, out_jobs, summary)}

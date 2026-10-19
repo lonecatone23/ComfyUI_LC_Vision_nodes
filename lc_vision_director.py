@@ -30,7 +30,6 @@ import time
 
 import folder_paths
 
-from .lc_vision_caption import _image_input_to_base64_list
 from .lc_vision_generate import generate_with_recovery, release
 from .lc_vision_loader import LCVisionModel, MODEL_TYPE, strip_thinking
 from .lc_vision_moviemaker import CUSTOM_PRESET_LABEL, FALLBACK_PRESET, _META_LEAK_RE, _TIMESTAMP_RE, _load_presets, _shift_timestamps, _timestamps
@@ -675,14 +674,16 @@ class LCVisionDirector:
     @classmethod
     def INPUT_TYPES(cls):
         presets = _load_presets()
-        preset_names = [CUSTOM_PRESET_LABEL] + list(presets.keys())
-        default_preset = FALLBACK_PRESET if FALLBACK_PRESET in presets else preset_names[0]
+        # the plan is written from the story alone (the Segment adds pictures and the carried-over frames), so only the
+        # text-to-video presets fit: R2VA / FL2VA ones make the planner write around pictures it never sees
+        preset_names = [CUSTOM_PRESET_LABEL] + [k for k in presets if "T2V" in k]
+        default_preset = FALLBACK_PRESET if FALLBACK_PRESET in preset_names else preset_names[0]
         return {
             "required": {
                 "vision_model": (MODEL_TYPE, {"tooltip": "Handle from LC Vision Loader. Not loaded at all when a saved plan is reused."}),
                 "project": ("STRING", {"default": "parka_test", "tooltip": "Project name. The plan and every segment are saved in output/LC_H3/<project>/."}),
                 "story": ("STRING", {"multiline": True, "default": "", "tooltip": "The whole story, start to finish. Say who is in it, where, and what happens."}),
-                "preset": (preset_names, {"default": default_preset, "tooltip": "Which MiniMax H3 mode the segments are written for. Add more in lc_vision_moviemaker_presets.json (shared with Moviemaker)."}),
+                "preset": (preset_names, {"default": default_preset, "tooltip": "The planner's writing rules. NSFW allows adult scenes. Custom uses custom_system_prompt."}),
                 "segments": ("INT", {"default": 3, "min": 1, "max": MAX_SEGMENTS, "tooltip": "How many segments. With 5 s segments the first one is 5 s and each CONTINUE adds about 3.5 s (the overlap is shared): 12 segments is about 44 s, about 16 make a minute."}),
                 "segment_seconds": ("FLOAT", {"default": 5.0, "min": 2.0, "max": 20.0, "step": 0.5, "tooltip": "Length of each generated segment. Snapped to H3's frame grid (5.0 = 124 frames). Shorter = less VRAM."}),
                 "overlap_seconds": ("FLOAT", {"default": 1.6, "min": 0.2, "max": 6.0, "step": 0.1, "tooltip": "How much of the previous segment a CONTINUE segment starts from. 1.6 s (39 frames) is a good default."}),
@@ -691,10 +692,6 @@ class LCVisionDirector:
             "optional": {
                 "custom_system_prompt": ("STRING", {"multiline": True, "default": "", "tooltip": "Used only when preset is 'Custom'."}),
                 "style_tag": (STYLE_TAG_OPTIONS, {"default": "None", "tooltip": "Commits every segment to one visual style."}),
-                "reference_image_1": ("IMAGE", {"tooltip": "For R2VA / FL2VA presets. Labeled <Reference 1>, written back as <Picture 1>."}),
-                "reference_image_2": ("IMAGE", {"tooltip": "Labeled <Reference 2> / <Picture 2>."}),
-                "reference_image_3": ("IMAGE", {"tooltip": "Labeled <Reference 3> / <Picture 3>."}),
-                "reference_image_4": ("IMAGE", {"tooltip": "Labeled <Reference 4> / <Picture 4>."}),
                 "max_tokens": ("INT", {"default": 8192, "min": 256, "max": 32768, "tooltip": "Token limit for the whole plan. Raise it for many segments."}),
                 "temperature": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.05}),
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -751,8 +748,7 @@ class LCVisionDirector:
 
     def _plan(self, vision_model: LCVisionModel, project: str, story: str, preset: str, segments: int,
              segment_seconds: float, overlap_seconds: float, replan: bool, custom_system_prompt: str = "",
-             style_tag: str = "None", reference_image_1=None, reference_image_2=None, reference_image_3=None,
-             reference_image_4=None, max_tokens: int = 8192, temperature: float = 0.7, top_p: float = 0.9,
+             style_tag: str = "None", max_tokens: int = 8192, temperature: float = 0.7, top_p: float = 0.9,
              repetition_penalty: float = 1.1, seed: int = 0, extend_segments: bool = True) -> tuple:
         if len(str(project)) > 80 or chr(10) in str(project):
             raise ValueError("[LC Vision] Showrunner: project got a long text (the story?). project is the folder name, "
@@ -797,8 +793,6 @@ class LCVisionDirector:
                                     and getattr(vision_model, "build_params", None) is None):
             raise ValueError("[LC Vision] Showrunner received no model. Connect an LC Vision Loader.")
 
-        references = [reference_image_1, reference_image_2, reference_image_3, reference_image_4]
-        reference_count = sum(1 for r in references if r is not None)
         presets = _load_presets()
         if preset == CUSTOM_PRESET_LABEL and custom_system_prompt.strip():
             preset_text = custom_system_prompt.strip()
@@ -807,10 +801,8 @@ class LCVisionDirector:
             if not entry:
                 raise ValueError(f"[LC Vision] Preset '{preset}' not found in lc_vision_moviemaker_presets.json.")
             preset_text = entry["system_prompt"]
-            if entry.get("needs_reference") and not reference_count:
-                print(f"[LC Vision] Warning: preset '{preset}' expects reference image(s), but none were connected.")
 
-        system_prompt = _instructions(segments, seg_s, new_s, overlap_s, reference_count) + "\n\n" + preset_text
+        system_prompt = _instructions(segments, seg_s, new_s, overlap_s, 0) + "\n\n" + preset_text
         story_lines = [ln.strip() for ln in _QUOTE_RE.findall(story) if ln.strip()]
         if story_lines:
             system_prompt += ("\n\nThe story has these spoken lines. Each one MUST appear exactly once, verbatim and in "
@@ -821,14 +813,6 @@ class LCVisionDirector:
                               "gets the segments listed for it: slow it down with small steps, glances and reactions "
                               "to fill them, and never jump ahead to a later event early.\n" + beats)
         content = [{"type": "text", "text": story.strip() or "Plan a short scene."}]
-        for idx, ref in enumerate(references, start=1):
-            if ref is None:
-                continue
-            frames = _image_input_to_base64_list(ref, 768, 90)
-            if frames:
-                content.append({"type": "text", "text": f"\n<Reference {idx}>"})
-                for b64 in frames:
-                    content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
         content = apply_style_tag_to_content(content, style_tag)
         if getattr(vision_model, "is_qwen3_family", False):
             content = [{"type": "text", "text": "/no_think"}] + content

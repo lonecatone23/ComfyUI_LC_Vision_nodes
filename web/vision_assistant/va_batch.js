@@ -20,16 +20,27 @@ const num = (v) => {
   return m ? parseFloat(m[1]) : null;
 };
 
-/** A widget's real value: when it is wired to another node (a combo selector, a primitive), read that node. */
+/** A widget's real value: when it is wired to another node, read the value behind the output it comes from.
+ * A primitive / slider has one value; a node with several outputs (Aspect Ratio Simplifier: width, height, batch...)
+ * has a widget per output, so match the output's name (batch -> batch_size). Unknown = null (no warning on a guess). */
 function valueOf(n, w) {
   const inp = (n.inputs || []).find((i) => i.name === w.name && i.link != null);
-  if (inp) {
-    const link = app.graph.links?.[inp.link] ?? app.graph.links?.get?.(inp.link);
-    const src = link && app.graph.getNodeById(link.origin_id);
-    const sw = src && ((src.widgets || []).find((x) => x.name === "value") || (src.widgets || [])[0]);
-    if (sw && num(sw.value) !== null) return num(sw.value);
+  if (!inp) return num(w.value);
+  const link = app.graph.links?.[inp.link] ?? app.graph.links?.get?.(inp.link);
+  const src = link && app.graph.getNodeById(link.origin_id);
+  if (!src) return null;
+  if (typeof src.lcOutputValue === "function") {
+    const v = num(src.lcOutputValue(link.origin_slot));
+    if (v !== null) return v;
   }
-  return num(w.value);
+  const out = String(src.outputs?.[link.origin_slot]?.name || "").toLowerCase();
+  const ws = src.widgets || [];
+  const named = out && ws.find((x) => {
+    const nm = String(x.name || "").toLowerCase();
+    return nm === out || nm === `${out}_size` || nm === `${out}_value`;
+  });
+  const sw = named || ws.find((x) => x.name === "value") || ((src.outputs || []).length <= 1 && ws.length === 1 ? ws[0] : null);
+  return sw ? num(sw.value) : null;
 }
 
 function widget(n, re) {

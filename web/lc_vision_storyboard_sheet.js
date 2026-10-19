@@ -56,7 +56,11 @@ async function makePictures(node, only, everything) {
   if (ow) ow.value = only;
   if (mw) mw.value = everything ? "everything" : "missing only";
   try {
-    await app.queuePrompt(0, 1, [String(sv.id)]); // only the storyboard runs, not the movie
+    // only the storyboard runs, not the movie: the Save node plus whatever shows its outputs (a Show Text on summary)
+    const graph = app.graph;
+    const after = (sv.outputs || []).flatMap((o) => (o.links || []).map((id) => graph.links?.[id] ?? graph.links?.get?.(id)))
+      .filter(Boolean).map((l) => String(l.target_id));
+    await app.queuePrompt(0, 1, [String(sv.id), ...new Set(after)]);
     toast(only ? `Making ${only} again.` : "Making the missing pictures.");
   } finally {
     if (ow) ow.value = keep[0];
@@ -241,11 +245,17 @@ function hideInternal(node) {
 // the Storyboard Builder: its project comes in on a socket; the name shows at the bottom, like on the Showrunner
 function builderName(node) {
   if (node._lcsbName) return;
+  const box = document.createElement("div");
   const el = document.createElement("div");
   el.style.cssText = "font:bold 14px system-ui;color:#ffc850;padding:6px 4px 10px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+  // the last run's summary: what it made, which take, your ✎ words, what was already there
+  const sum = document.createElement("div");
+  sum.style.cssText = "font:12px ui-monospace,monospace;color:#ccc;padding:0 4px 6px;line-height:16px;white-space:pre-wrap;max-height:160px;overflow:auto";
+  box.append(el, sum);
   node._lcsbName = el;
-  const w = node.addDOMWidget("lc_sb_project", "project_name", el, { serialize: false, hideOnZoom: false, getValue: () => "", setValue() {} });
-  w.computeSize = () => [node.size?.[0] || 300, 40];
+  node._lcsbSum = sum;
+  const w = node.addDOMWidget("lc_sb_project", "project_name", box, { serialize: false, hideOnZoom: false, getValue: () => "", setValue() {} });
+  w.computeSize = () => [node.size?.[0] || 300, 40 + (sum.textContent ? Math.min(160, sum.scrollHeight || 16 * (sum.textContent.split("\n").length)) + 6 : 0)];
   const show = async () => {
     const linked = node.inputs?.find((i) => i.name === "project_name")?.link != null;
     el.textContent = linked ? `🎬 ${(await projectName()) || "no project"}` : "🎬 wire the Showrunner's project_name output";
@@ -277,8 +287,9 @@ app.registerExtension({
       return r;
     };
     // a workflow saved when project was a typed field carries its value first: after loading, every setting sits one
-    // place too far down. Straighten them (once) when family holds something that isn't a family
+    // place too far down. Straighten them (once) when base_model holds something that isn't a model
     const FAM = ["Krea 2", "Z-Image"];
+    const RENAMED = { family: "base_model", wide_width: "landscape_width", wide_height: "landscape_height" };
     const onCfg = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {
       const r = onCfg?.apply(this, arguments);
@@ -291,6 +302,14 @@ app.registerExtension({
         const ctl = ws.find((w) => w.name === "control_after_generate");
         if (ctl && !ctl.options?.values?.includes(ctl.value)) ctl.value = "fixed";
       }
+      // inputs renamed in 1.6.4: a saved workflow still carries the old socket names
+      for (const inp of this.inputs || []) {
+        const nu = RENAMED[inp.widget?.name];
+        if (nu) {
+          inp.name = nu;
+          inp.widget.name = nu;
+        }
+      }
       hideInternal(this);
       return r;
     };
@@ -298,6 +317,20 @@ app.registerExtension({
     nodeType.prototype.onConnectionsChange = function () {
       const r = changed?.apply(this, arguments);
       this._lcsbShow?.();
+      return r;
+    };
+    const executed = nodeType.prototype.onExecuted;
+    nodeType.prototype.onExecuted = function (message) {
+      const r = executed?.apply(this, arguments);
+      const t = message?.text;
+      if (this._lcsbSum && t) {
+        this._lcsbSum.textContent = Array.isArray(t) ? t.join("\n") : String(t);
+        requestAnimationFrame(() => {
+          const min = this.computeSize();
+          if (this.size[1] < min[1]) this.setSize([this.size[0], min[1]]);
+          this.setDirtyCanvas?.(true, true);
+        });
+      }
       return r;
     };
   },

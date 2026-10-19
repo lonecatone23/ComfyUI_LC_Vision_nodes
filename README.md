@@ -221,12 +221,23 @@ The GGUF-header reader in `lc_vision_loader.py` is the one piece that resembles 
 
 ### AMD, Intel and other non-NVIDIA GPUs
 - ⚠️ The prebuilt `JamePeng/llama-cpp-python` wheels are **CUDA-only** (plus Metal on macOS). Without an NVIDIA CUDA runtime they cannot be imported, so `install.py` stops there and changes nothing instead of installing a wheel that can't load.
-- You need to build the fork for your backend yourself, with ComfyUI's own Python, a C++ toolchain and CMake:
-  - **Vulkan (AMD or Intel):** install the Vulkan SDK, set `CMAKE_ARGS=-DGGML_VULKAN=on`, then `python -m pip install "llama-cpp-python @ git+https://github.com/JamePeng/llama-cpp-python.git"`
-  - **AMD HIP / ROCm:** the fork's README has the steps (Windows needs the ROCm SDK environment variables set first; Linux uses `CMAKE_ARGS="-DGGML_HIP=ON"`)
-  - **CPU only:** the same pip command with no `CMAKE_ARGS`
+- You need to build the fork for your backend yourself, with a C++ toolchain (Visual Studio Build Tools on Windows) and **ComfyUI's own Python**.
+- ✋ **Use ComfyUI's Python, by its full path.** A plain `python -m pip` usually installs into a different Python, and the Loader keeps saying `llama_cpp` is missing. The Loader's error message prints the exact path ComfyUI runs on. Typical ones:
+  - Portable: `ComfyUI_windows_portable\python_embeded\python.exe`
+  - Desktop app, venv or other installs: the `python.exe` inside that install's `.venv`, `venv` or `python_env` folder
+- **Vulkan (AMD or Intel), Windows PowerShell:** install the Vulkan SDK first, then (swap in your path):
+```powershell
+$py = "N:\ComfyUI\python_env\python.exe"
+& $py -m pip install --upgrade cmake ninja scikit-build-core
+$env:CMAKE_ARGS = "-DGGML_VULKAN=on"
+& $py -m pip install --no-build-isolation --force-reinstall --no-cache-dir "llama-cpp-python @ git+https://github.com/JamePeng/llama-cpp-python.git"
+& $py -c "import llama_cpp; print(llama_cpp.__version__)"
+```
+  - The last line should print a version. If it errors, the build went somewhere else or failed.
+- **AMD HIP / ROCm:** the fork's README has the steps (Windows needs the ROCm SDK environment variables set first; Linux uses `CMAKE_ARGS="-DGGML_HIP=ON"`). Same rule: ComfyUI's Python by its full path.
+- **CPU only:** the same commands with no `CMAKE_ARGS`.
 - *note:* I have only tested this pack on NVIDIA. These build steps come from the fork's own README, so treat them as a starting point.
-- If the Loader still says `llama_cpp` is missing, its error now includes the real import error. Send that line with any bug report.
+- If the Loader still says `llama_cpp` is missing, its error shows the real import error and the Python ComfyUI runs on. Send that line with any bug report.
 
 ## License
 

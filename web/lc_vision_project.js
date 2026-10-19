@@ -83,7 +83,7 @@ async function newProject(dir) {
   if (!res) return;
   if (!/^[A-Za-z0-9 _-]{1,60}$/.test(res.name)) return toast("Use letters, numbers, spaces, - and _ (up to 60).", "warn");
   if (names.has(res.name.toLowerCase())) return toast(`${res.name} already exists: 📂 Load it instead.`, "warn");
-  await save(dir, true); // the project we are leaving keeps its latest state
+  await save(dir, true, true); // the project we are leaving keeps its latest state
   const src = await projectSource(dir);
   const pw = widget(src.node, src.key);
   if (pw) pw.value = res.name;
@@ -148,12 +148,33 @@ function collect(dir) {
   };
 }
 
-export async function save(dir, quiet = false) {
+// which save of the project file this tab last loaded or wrote (kept in the workflow, so it survives a page reload)
+function seen(dir, project) {
+  const s = dir.properties?.lc_project_seen;
+  return s?.name === project ? s.saved : "";
+}
+
+function markSeen(dir, project, saved) {
+  if (!saved) return;
+  dir.properties = dir.properties || {};
+  dir.properties.lc_project_seen = { name: project, saved };
+}
+
+// auto = the save on Run (and before 🆕 New): when the project file was saved since this tab last saw it, the file keeps
+// its own Shot List and pictures. A tab that never saw it counts as older. 💾 always writes this tab's.
+export async function save(dir, quiet = false, auto = false) {
   const project = (await projectSource(dir)).name;
   if (!project) return quiet || toast("Give the project a name first.", "warn");
+  const data = collect(dir);
+  if (auto) data.based_on = seen(dir, project) || "1970-01-01T00:00:00.000Z";
   const r = await fetch("/lc_vision/movie/project", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ project, data: collect(dir) }) }).then((x) => x.json()).catch((e) => ({ error: String(e) }));
+    body: JSON.stringify({ project, data }) }).then((x) => x.json()).catch((e) => ({ error: String(e) }));
   if (r.error) return toast(`Not saved: ${r.error}`, "warn");
+  if (r.kept_stale) {
+    toast(`${project} was saved since this tab last loaded it, so the project kept its own Shot List and pictures. 📂 Load ${project} to bring them in, or 💾 Save to keep this tab's.`, "warn");
+    return;
+  }
+  markSeen(dir, project, r.stamp);
   if (r.kept_shot_list) toast(`This Shot List tells a different story than ${project}'s plan, which has locked segments, so the project kept its own. 📂 Load ${project} to bring it in.`, "warn");
   if (dir._lcProj) dir._lcProj.note.textContent = `saved ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   if (!quiet) toast(`Saved ${project}.`);
@@ -177,6 +198,7 @@ async function load(dir, name) {
     window.dispatchEvent(new CustomEvent("lc-vision-project", { detail: { name } }));
     return;
   }
+  markSeen(dir, name, d.saved);
   for (const [k, v] of Object.entries(d.director || {})) {
     const w = widget(dir, k);
     if (w && v !== undefined) w.value = v;
@@ -276,12 +298,15 @@ function build(dir) {
 }
 
 // save the project with every Run, before it is queued (the values that go to the server are the ones saved)
+// Only a prompt that holds this graph's Showrunner saves: the Reference Assembler's sheet preview queues just the
+// Assembler, and on a page reload with old tabs open that run saved an old tab's Shot List and pictures over the project.
 const origQueue = api.queuePrompt.bind(api);
 api.queuePrompt = async function (...args) {
   const dir = first(DIRECTOR);
+  const runs = dir && args[1]?.output?.[String(dir.id)]?.class_type === DIRECTOR;
   // awaited: with the project on a wire, save() first resolves the name (graphToPrompt), and the queue request went
   // out ahead of it, so the Storyboard Builder could read the project file from before this Run
-  if (dir) await save(dir, true).catch(() => {});
+  if (runs) await save(dir, true, true).catch(() => {});
   return origQueue(...args);
 };
 

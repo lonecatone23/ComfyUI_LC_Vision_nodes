@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import re
 import struct
+import sys
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -632,8 +633,10 @@ class LCVisionLoader:
         except Exception as exc:
             raise RuntimeError(
                 "[LC Vision] llama_cpp is not installed, or the installed copy cannot load or lacks vision "
-                f"support ({type(exc).__name__}: {exc}). Run this pack's install.py (or see README.md; AMD/Intel "
-                "GPUs need a source build, see 'AMD, Intel and other non-NVIDIA GPUs')."
+                f"support ({type(exc).__name__}: {exc}). ComfyUI runs on this Python: {sys.executable}  "
+                f"Install into that one: \"{sys.executable}\" -m pip install ...  (a plain 'python -m pip' often "
+                "installs into another Python). Run this pack's install.py with it, or see README.md; AMD/Intel GPUs "
+                "need a source build, see 'AMD, Intel and other non-NVIDIA GPUs'."
             ) from exc
 
         local_name = None

@@ -15,6 +15,7 @@ what comes next. Read only, apart from cached thumbnails.
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
@@ -814,7 +815,23 @@ def save_project_checked(project: str, data: dict) -> dict:
             if old.get("shot_list"):
                 data = {**data, "shot_list": old["shot_list"]}
                 kept = True
-    return {"saved": save_project(project, data), "kept_shot_list": kept}
+    # the auto-save on Run says which save of the project file its tab last saw (based_on). When the file was saved
+    # since (from another tab), this tab's Shot List and pictures are older: nothing is written, the file keeps its own.
+    based_on = str(data.pop("based_on", "") or "")
+    if based_on and folder:
+        old = _load(os.path.join(folder, "project.json")) or {}
+        newer = _stamp(old.get("saved")) > _stamp(based_on)
+        if newer and (old.get("shot_list") != data.get("shot_list") or old.get("references") != data.get("references")):
+            print(f"[LC Vision] {project}: project.json kept, the Run came from a tab older than its last save")
+            return {"saved": None, "kept_shot_list": False, "kept_stale": True}
+    return {"saved": save_project(project, data), "kept_shot_list": kept, "kept_stale": False, "stamp": data.get("saved")}
+
+
+def _stamp(s) -> float:
+    try:
+        return datetime.datetime.fromisoformat(str(s).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
 
 
 _CARD_KEYS = ("kind", "role", "name", "note", "on", "crop", "text", "trim", "storyboard")
