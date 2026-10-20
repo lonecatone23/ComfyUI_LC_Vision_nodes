@@ -329,16 +329,20 @@ function renderTourEdit(body) {
     const n = top?.getNodeById?.(Number(id)) || top?.getNodeById?.(id);
     return n ? core.nodeLabel(n) : `#${id}`;
   };
-  const picker = (st, i) => {
-    if (st.settings.length >= MAX_TOUR_SETTINGS) return `<div class="va-sub">${MAX_TOUR_SETTINGS} settings is the most a step shows.</div>`;
+  const settingOptions = (st) => {
     const marked = new Set(st.settings.map((x) => `${x.node}|${x.widget}`));
     const opts = tour.stepChoices(st).filter((c) => !marked.has(`${c.node}|${c.widget}`));
     const groups = [...new Set(opts.map((c) => c.group))];
-    const list = opts.length ? `<select class="va-input" data-add="${i}" title="Marks this setting with the next number on the canvas. Select a node first to mark one outside this step.">
-      <option value="">+ Add a setting…</option>
+    return opts.length ? `<option value="">+ Add a setting…</option>
       ${groups.map((g) => `<optgroup label="${esc(g)}">${opts.filter((c) => c.group === g)
-        .map((c) => `<option value="${esc(`${c.node}|${c.widget}`)}">${esc(c.label)}</option>`).join("")}</optgroup>`).join("")}
-    </select>` : `<div class="va-sub">Select a node on the canvas to list its settings here.</div>`;
+        .map((c) => `<option value="${esc(`${c.node}|${c.widget}`)}">${esc(c.label)}</option>`).join("")}</optgroup>`).join("")}`
+      : `<option value="">+ Add a setting… (select a node on the canvas first)</option>`;
+  };
+  const picker = (st, i) => {
+    if (st.settings.length >= MAX_TOUR_SETTINGS) return `<div class="va-sub">${MAX_TOUR_SETTINGS} settings is the most a step shows.</div>`;
+    // always a list (re-read from the canvas selection each time it opens): a node selected after the editor was
+    // drawn has to show up, also on a step that had nothing to list yet
+    const list = `<select class="va-input" data-add="${i}" title="Marks this setting with the next number on the canvas. Select a node first to mark one outside this step.">${settingOptions(st)}</select>`;
     return `${list}<div style="display:flex;gap:6px;margin-top:4px">
       <button class="va-btn" data-pick="${i}" title="Then click any setting on a node, or any part of a panel (a Proof Sheet card, an Assembler card, a Shot List box). Esc cancels.">🎯 Pick on canvas</button>
       <input class="va-input" data-typed="${i}" style="flex:1;min-width:0" placeholder="…or type its name (on the selected node), Enter" title="A setting's name or label, or a panel part's name. Select its node on the canvas first."></div>`;
@@ -420,6 +424,17 @@ function renderTourEdit(body) {
     renderTourEdit(body);
     body.scrollTop = top;
   };
+  body.querySelectorAll("[data-add]").forEach((sel) => {
+    const again = () => { // the canvas selection may have changed since the editor was drawn
+      const st = t.steps[Number(sel.dataset.add)];
+      if (!st) return;
+      const v = sel.value;
+      sel.innerHTML = settingOptions(st);
+      if ([...sel.options].some((o) => o.value === v)) sel.value = v;
+    };
+    sel.onmousedown = again;
+    sel.onfocus = again;
+  });
   body.querySelectorAll("[data-add]").forEach((sel) => (sel.onchange = () => {
     if (!sel.value) return;
     const [node, widget] = sel.value.split("|");
@@ -458,6 +473,16 @@ function renderTourEdit(body) {
           e.stopPropagation();
           done();
           return addMarker(i, owner.id, `part:${tag.dataset.tour}`);
+        }
+      }
+      // a setting that is its own element over the canvas: a prompt / negative text box, any DOM widget
+      for (const n of top?._nodes || []) {
+        const w = (n.widgets || []).find((w2) => w2.name && [w2.element, w2.inputEl].some((el) => el?.contains?.(e.target)));
+        if (w) {
+          e.preventDefault();
+          e.stopPropagation();
+          done();
+          return addMarker(i, n.id, w.name);
         }
       }
       // a setting drawn on the canvas
