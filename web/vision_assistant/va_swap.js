@@ -4,6 +4,16 @@
 // the LC node. Idea from AusBoss's "Replace with AusBoss nodes" (ComfyUI-AusBoss, MIT); written from scratch.
 import { app } from "../../../scripts/app.js";
 
+// the LC Vision Loader a QwenVL swap adds in front of the LC node: same GGUF model when LC sees it
+const VISION_LOADER = {
+  type: "LCVisionLoader", input: "vision_model",
+  set: (old) => {
+    const want = String(old.widgets?.find((w) => w.name === "model_name")?.value || "").replace(/^\[local\]\s*/i, "").replace(/\.gguf$/i, "");
+    const opts = LiteGraph.registered_node_types?.LCVisionLoader?.nodeData?.input?.required?.model_name?.[0] || [];
+    return opts.includes(want) ? { model_name: want } : {};
+  },
+};
+
 // from: other pack's node type. to: LC node type. names: old socket/setting name -> LC name (both inputs and
 // outputs; unlisted names stay the same). set(old, values): extra LC settings worked out from the old node.
 export const SWAPS = [
@@ -69,6 +79,58 @@ export const SWAPS = [
       return { model: "Custom", aspect: "free", width: w, height: h, megapixels: Math.round((w * h) / 1e4) / 100 };
     },
   },
+  // rgthree LoRA loaders: every LoRA row (on / file / strength) becomes an LC LoRA Loader row
+  {
+    from: "Power Lora Loader (rgthree)", to: "LCLoraLoader", names: { MODEL: "model", CLIP: "clip" },
+    set: (old) => ({ lora_rows: JSON.stringify((old.widgets || []).map((w) => w.value)
+      .filter((v) => v && typeof v === "object" && typeof v.lora === "string" && v.lora && v.lora !== "None")
+      .map((v) => ({ on: v.on !== false, lora: v.lora, strength: Number(v.strength ?? 1) }))) }),
+    after: (fresh) => fresh.onConfigure?.({}),
+  },
+  {
+    from: "Lora Loader Stack (rgthree)", to: "LCLoraLoader", names: { MODEL: "model", CLIP: "clip" },
+    drop: ["lora_01", "strength_01", "lora_02", "strength_02", "lora_03", "strength_03", "lora_04", "strength_04"],
+    set: (old) => {
+      const val = (n) => old.widgets?.find((w) => w.name === n)?.value;
+      const rows = [1, 2, 3, 4].map((i) => ({ lora: val(`lora_0${i}`), strength: Number(val(`strength_0${i}`) ?? 1) }))
+        .filter((r) => typeof r.lora === "string" && r.lora && r.lora !== "None").map((r) => ({ on: true, ...r }));
+      return { lora_rows: JSON.stringify(rows) };
+    },
+    after: (fresh) => fresh.onConfigure?.({}),
+  },
+  // 1038lab's RMBG: blur -> feather, offset -> grow; RMBG-2.0 stays RMBG-2.0, anything else gets LC's default BiRefNet
+  ...["RMBG", "BiRefNetRMBG"].map((from) => ({
+    from, to: "LCRemBG", names: { IMAGE: "cutout", MASK: "mask", mask_offset: "grow", mask_blur: "feather" },
+    drop: ["model", "sensitivity", "process_res", "invert_output", "refine_foreground", "unload_model", "background", "background_color"],
+    set: (old) => {
+      const m = String(old.widgets?.find((w) => w.name === "model")?.value || "");
+      const opts = LiteGraph.registered_node_types?.LCRemBG?.nodeData?.input?.required?.model?.[0] || [];
+      const rmbg = /rmbg[-_ ]?2/i.test(m) && opts.find((o) => /RMBG-2\.0/.test(o));
+      return rmbg ? { model: rmbg } : {};
+    },
+  })),
+  // AILab / huchukato QwenVL: the model loads in the node there, LC Vision splits it into LC Vision Loader + the task node
+  ...["AILab_QwenVL_GGUF_PromptEnhancer", "AILab_QwenVL_PromptEnhancer", "QwenVL_Unified_PromptEnhancer"].map((from) => ({
+    from, to: "LCVisionPromptEnhancer", names: { ENHANCED_OUTPUT: "text" }, companion: VISION_LOADER,
+    drop: ["model_name", "quantization", "attention_mode", "use_torch_compile", "device", "preset_system_prompt", "enhancement_style",
+           "camera_tag", "style_tag", "english_output", "keep_model_loaded", "keep_last_prompt", "passthrough", "duration"],
+    set: (old) => {
+      const val = (n) => old.widgets?.find((w) => w.name === n)?.value;
+      const presets = LiteGraph.registered_node_types?.LCVisionPromptEnhancer?.nodeData?.input?.required?.preset?.[0] || [];
+      const want = String(val("preset_system_prompt") ?? val("enhancement_style") ?? "").replace(/^[^A-Za-z]+/, "").trim();
+      const style = { "[ANIME]": "Anime", "[PHOTOREALISTIC]": "Realistic", "[CARTOON]": "Cartoon", "[SEMIREALANIME]": "Anime" }[val("style_tag")] || "None";
+      return { ...(presets.includes(want) ? { preset: want } : {}), style_tag: style };
+    },
+  })),
+  ...["AILab_QwenVL", "AILab_QwenVL_Advanced", "AILab_QwenVL_GGUF", "AILab_QwenVL_GGUF_Advanced", "QwenVL_Unified", "QwenVL_Unified_Advanced"].map((from) => ({
+    from, to: "LCVisionCaption", companion: VISION_LOADER,
+    names: { RESPONSE: "text", image: "reference_image_1", image2: "reference_image_2", image3: "reference_image_3", video: "reference_video" },
+    drop: ["model_name", "quantization", "attention_mode", "use_torch_compile", "device", "preset_prompt", "camera_tag", "keep_model_loaded",
+           "keep_last_prompt", "passthrough", "duration", "frame_count", "num_beams", "ctx", "n_batch", "gpu_layers", "image_max_tokens",
+           "top_k", "pool_size"],
+    // their preset is a canned task; an empty prompt there means "use the preset", so give LC a plain description request
+    set: (old) => ({ prompt: String(old.widgets?.find((w) => w.name === "prompt")?.value || "").trim() || "Describe this image in detail." }),
+  })),
 ];
 
 // Pixaroma keeps state as JSON in node.properties
@@ -216,6 +278,7 @@ export function swapNode(old, base) {
   });
   const pos = [...old.pos], mode = old.mode, size = old.size ? [...old.size] : null;
   const converted = sw.convert ? sw.convert(old) : null; // read before the old node goes
+  const compValues = sw.companion && registered(sw.companion.type) ? sw.companion.set?.(old) || {} : null;
   graph.remove(old);
   fresh.pos = pos;
   fresh.mode = mode;
@@ -244,6 +307,23 @@ export function swapNode(old, base) {
     const slot = fresh.findOutputSlot?.(c.from) ?? fresh.outputs?.findIndex((o) => o.name === c.from);
     if (c.node && slot >= 0) fresh.connect(slot, c.node, c.slot);
   }
+  if (compValues) {
+    const comp = LiteGraph.createNode(sw.companion.type);
+    if (comp) {
+      graph.add(comp);
+      comp.pos = [pos[0] - (comp.size?.[0] || 320) - 40, pos[1]];
+      comp.mode = mode;
+      for (const [name, v] of Object.entries(compValues)) {
+        const w = comp.widgets?.find((x) => x.name === name);
+        if (w && valid(w, v)) w.value = v;
+      }
+      const slot = fresh.inputs?.findIndex((i) => i.name === sw.companion.input);
+      if (slot >= 0) comp.connect(0, fresh, slot);
+    }
+  }
+  try {
+    sw.after?.(fresh, old);
+  } catch (_) {}
   const min = fresh.computeSize?.() || fresh.size;
   if (size) fresh.setSize?.([Math.max(size[0], min[0]), Math.max(min[1], fresh.size[1])]);
   return fresh;
