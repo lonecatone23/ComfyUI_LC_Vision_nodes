@@ -32,15 +32,41 @@ function widgetsOf(n) {
   return (n.widgets || []).filter((w) => w?.name && w.type !== "button" && w.options?.serialize !== false && w.serialize !== false);
 }
 
+// [key, widget] per setting. Widgets that share a name (every row of rgthree's Fast Groups Bypasser is
+// "RGTHREE_TOGGLE_AND_NAV") get "#2", "#3"... so each one is kept.
+function keyedWidgets(n) {
+  const seen = {};
+  return widgetsOf(n).map((w) => {
+    seen[w.name] = (seen[w.name] || 0) + 1;
+    return [seen[w.name] > 1 ? `${w.name}#${seen[w.name]}` : w.name, w];
+  });
+}
+const widgetByKey = (n, key) => keyedWidgets(n).find(([k]) => k === key)?.[1];
+
+// rgthree's mode toggles (Fast Bypasser / Muter, Fast Groups Bypasser / Muter) only change the nodes inside
+// doModeChange(); their callback flips the node from whatever mode it is in now. So they are set to the exact state.
+const modeToggle = (wd) => typeof wd?.doModeChange === "function";
+
+function setWidget(n, wd, v) {
+  if (modeToggle(wd)) {
+    wd.doModeChange(v && typeof v === "object" ? !!v.toggled : !!v, true);
+    return;
+  }
+  wd.value = plain(v);
+  try {
+    wd.callback?.(wd.value, app.canvas, n);
+  } catch (_) {}
+}
+
 /** Every node's settings and state, keyed by node id. */
 export function capture(graph = app.graph) {
   const out = {};
   for (const n of nodesOf(graph)) {
     if (SKIP_TYPES.has(n.type)) continue;
     const w = {};
-    for (const wd of widgetsOf(n)) {
+    for (const [key, wd] of keyedWidgets(n)) {
       const v = plain(wd.value);
-      if (v !== undefined) w[wd.name] = v;
+      if (v !== undefined) w[key] = v;
     }
     out[n.id] = { id: n.id, type: n.type, title: nodeLabel(n), mode: n.mode ?? 0, w };
   }
@@ -55,7 +81,7 @@ export function defaultOff(node, name, value) {
   if (/seed/i.test(name) || name === "control_after_generate" || /^LCSeed|Seed \(rgthree\)/.test(t)) return "seed";
   if (IMAGE_TYPES.test(t) || /^(image|video|audio|upload|file)$/i.test(name)) return "input";
   const n = app.graph && nodesOf().find((x) => String(x.id) === String(node.id));
-  const wd = n?.widgets?.find((w) => w.name === name);
+  const wd = n && widgetByKey(n, name);
   if (typeof value === "string" && (wd?.options?.multiline || wd?.type === "customtext" ||
       /prompt|positive|negative|caption|^text$|^string$/i.test(name))) return "prompt";
   return "";
@@ -101,7 +127,7 @@ export function fitOf(snap, graph = app.graph) {
   const miss = [];
   for (const it of snap.items || []) {
     const c = candidates(it.key, graph, true);
-    const fine = c.length && (it.kind === "mode" || c.some((n) => n.widgets?.some((w) => w.name === it.name)));
+    const fine = c.length && (it.kind === "mode" || c.some((n) => widgetByKey(n, it.name)));
     if (fine) ok++;
     else miss.push(it.kind === "mode" ? `${it.key.title} (on / off)` : `${it.key.title}: ${it.name}`);
   }
@@ -134,6 +160,7 @@ export function apply(snap, { library = false, picks = {} } = {}, graph = app.gr
   const before = capture(graph);
   let changed = 0;
   const skipped = [];
+  const toggles = []; // rgthree mode toggles go last, after the node modes, so the two can't fight
   for (const it of snap.items) {
     const k = `${it.key.type}|${it.key.title}|${it.key.id}`;
     let targets = picks[k] ? picks[k].map((id) => nodesOf(graph).find((n) => String(n.id) === String(id))).filter(Boolean) : candidates(it.key, graph, library);
@@ -150,7 +177,7 @@ export function apply(snap, { library = false, picks = {} } = {}, graph = app.gr
         }
         continue;
       }
-      const wd = n.widgets?.find((w) => w.name === it.name);
+      const wd = widgetByKey(n, it.name);
       if (!wd) {
         skipped.push(`${nodeLabel(n)}: has no "${it.name}"`);
         continue;
@@ -160,33 +187,31 @@ export function apply(snap, { library = false, picks = {} } = {}, graph = app.gr
         continue;
       }
       if (!same(wd.value, it.value)) {
-        wd.value = plain(it.value);
-        try {
-          wd.callback?.(wd.value, app.canvas, n);
-        } catch (_) {}
+        if (modeToggle(wd)) toggles.push([n, wd, it.value]);
+        else setWidget(n, wd, it.value);
         changed++;
       }
     }
   }
+  for (const [n, wd, v] of toggles) setWidget(n, wd, v);
   touch(graph);
   return { changed, skipped: [...new Set(skipped)], before };
 }
 
 /** Put a captured state back (one step undo). */
 export function restore(state, graph = app.graph) {
+  const toggles = [];
   for (const n of nodesOf(graph)) {
     const s = state[n.id];
     if (!s || s.type !== n.type) continue;
     n.mode = s.mode;
-    for (const wd of widgetsOf(n)) {
-      if (wd.name in s.w && !same(wd.value, s.w[wd.name])) {
-        wd.value = plain(s.w[wd.name]);
-        try {
-          wd.callback?.(wd.value, app.canvas, n);
-        } catch (_) {}
-      }
+    for (const [key, wd] of keyedWidgets(n)) {
+      if (!(key in s.w)) continue;
+      if (modeToggle(wd)) toggles.push([n, wd, s.w[key]]); // always re-set: the node modes above may have moved them
+      else if (!same(wd.value, s.w[key])) setWidget(n, wd, s.w[key]);
     }
   }
+  for (const [n, wd, v] of toggles) setWidget(n, wd, v);
   touch(graph);
 }
 
