@@ -86,9 +86,6 @@ class LCVisionPromptEnhancer:
                 "image_1": ("IMAGE", {"tooltip": "Optional picture the model sees while rewriting (ref_image_0). The Flux 3 edit presets need "
                                                  "it: the picture you edit."}),
                 "image_2": ("IMAGE", {"tooltip": "Optional second picture (ref_image_1)."}),
-                "layout": ("STRING", {"forceInput": True, "tooltip": "Optional MOSS layout (LC MOSS Layout Prompt's prompt). Plugged in, "
-                                                                      "the output is that layout with the boxes kept: your prompt goes first in "
-                                                                      "the scene caption, and the scene and every box are enhanced on their own."}),
             },
         }
 
@@ -151,7 +148,6 @@ class LCVisionPromptEnhancer:
         seed: int = 0,
         image_1=None,
         image_2=None,
-        layout: str = "",
     ) -> tuple[str]:
         if vision_model is None or (getattr(vision_model, "llm", None) is None
                                     and getattr(vision_model, "build_params", None) is None):
@@ -173,10 +169,10 @@ class LCVisionPromptEnhancer:
             if not system_prompt:
                 raise ValueError(f"[LC Vision] Preset '{preset}' not found in lc_vision_presets.json.")
 
-        data = _parse_layout(layout)
+        data = _parse_layout(prompt_text)  # LC MOSS Layout Prompt wired in: the base prompt is its scene, the boxes stay
         if data is not None:
-            return (self._enhance_layout(vision_model, data, system_prompt, prompt_text, style_tag, max_tokens, temperature, top_p,
-                                         repetition_penalty, seed, (image_1, image_2)),)
+            return (self._enhance_layout(vision_model, data, system_prompt, style_tag, max_tokens, temperature, top_p,
+                                         repetition_penalty, seed),)
 
         user_text = prompt_text.strip() or "Describe a scene vividly."
         user_text = apply_style_tag_to_text(user_text, style_tag)
@@ -196,6 +192,14 @@ class LCVisionPromptEnhancer:
             if retried and not _looks_like_leftover_planning(retried):
                 result = retried
 
+        vm = vision_model
+        if (not result.strip() and getattr(vm, "is_qwen3_family", False) and getattr(vm, "llm", None) is not None
+                and image_1 is None and image_2 is None):
+            print("[LC Vision] Prompt Enhancer came back empty (reasoning ran out the cap): asking again without reasoning")
+            result = self._no_think(vm, system_prompt, user_text, max_tokens, temperature, top_p, repetition_penalty, seed)
+        if not result.strip() and prompt_text.strip():  # never hand on a blank prompt: pass the original through
+            print("[LC Vision] Prompt Enhancer still empty: passing your prompt through unchanged")
+            result = prompt_text.strip()
         return (result,)
 
     def _no_think(self, vm, system_prompt, user, tokens, temperature, top_p, repetition_penalty, seed):
@@ -229,51 +233,47 @@ class LCVisionPromptEnhancer:
             return fallback
         return out
 
-    def _enhance_layout(self, vm, data, system_prompt, prompt_text, style_tag, max_tokens, temperature, top_p, repetition_penalty,
-                        seed, images):
-        """A MOSS layout, boxes kept. Rewritten as one string the boxes get lost (or the boxed subjects keep one-line
-        captions next to a full paragraph). Here: the prompt in its own pass, then the scene caption, then every box
-        caption on its own, and the layout goes back together unchanged."""
+    def _enhance_layout(self, vm, data, system_prompt, style_tag, max_tokens, temperature, top_p, repetition_penalty, seed):
+        """A MOSS layout, boxes kept: the scene caption and every box caption enhanced on their own, sharing
+        max_tokens so no part gets too hungry (long box captions grow the subjects past their boxes). An empty scene
+        stays empty: the model picks the setting."""
         gen = (temperature, top_p, repetition_penalty)
         summary, items = data["summary"], data["items"]
-        main = prompt_text.strip()
-        if main:  # its own pass, subject only: given the scene too, the model rewrote the setting and dropped the subject
-            main = self._clean(vm, system_prompt + LAYOUT_MAIN_RULES, apply_style_tag_to_text(main, style_tag), max_tokens, *gen, seed,
-                               images, fallback=main)
-            # a caption of another picture keeps its own background ("the background is a street"), which fights the scene
-            kept = [s for s in re.split(r"(?<=[.!?])\s+", main) if not re.search(r"\b(background|backdrop|behind (him|her|them))\b", s, re.I)]
-            main = " ".join(kept) or main
-        boxed = [f"- {it.get('label', 'object')}: {it.get('caption', '')}" for it in items if it.get("caption")]
-        scene_user = apply_style_tag_to_text(str(summary.get("caption", "")).strip() or "A picture.", style_tag)
-        if boxed:
-            scene_user += "\n\nBoxed subjects (described elsewhere, do not describe):\n" + "\n".join(boxed)
-        scene = self._clean(vm, system_prompt + LAYOUT_SCENE_RULES, scene_user, max_tokens, *gen, seed + 7,
-                            fallback=str(summary.get("caption", "")).strip())
-        summary["caption"] = f"{main} {scene}".strip() if main else scene
+        scene_budget, box_budget = _layout_budget(max_tokens, len(items))
+        scene = str(summary.get("caption", "")).strip()
+        if scene and scene != "A picture.":  # "A picture." = LC MOSS Layout Prompt with no base prompt
+            boxed = [f"- {it.get('label', 'object')}: {it.get('caption', '')}" for it in items if it.get("caption")]
+            note = ("\n\nBoxed subjects (described elsewhere, do not describe):\n" + "\n".join(boxed)) if boxed else ""
+            summary["caption"] = self._clean(vm, system_prompt + LAYOUT_SCENE_RULES, apply_style_tag_to_text(scene, style_tag) + note,
+                                             scene_budget, *gen, seed, fallback=scene)
         for n, it in enumerate(items):
             cap = str(it.get("caption", "")).strip()
             if cap and it.get("label") != "text":  # a text box writes exactly its text: left alone
-                it["caption"] = self._clean(vm, system_prompt + LAYOUT_BOX_RULES, f"The region: {cap}", min(max_tokens, 200), *gen,
+                it["caption"] = self._clean(vm, system_prompt + LAYOUT_BOX_RULES, f"The region: {cap}", box_budget, *gen,
                                             seed + 101 * (n + 1), fallback=cap)
-        print(f"[LC Vision] Layout enhanced: scene + {len(items)} box(es), boxes kept.")
+        print(f"[LC Vision] Layout enhanced: scene ({scene_budget} tokens) + {len(items)} box(es) ({box_budget} each), boxes kept.")
         return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
 
 LAYOUT_SCENE_RULES = (
-    "\n\nYou are writing the scene caption of a picture that also has boxed regions. The boxed subjects are listed "
-    "below: they are described separately, in their own boxes. Do not describe them here and do not add them; at most "
-    "say where they are in passing. Describe the setting, light, colour, mood, camera and style. Output only the "
-    "caption, one paragraph.")
+    "\n\nYou are enriching the scene caption of a picture whose subjects are placed by boxes. Keep everything the "
+    "user's text says, people included, and only add detail to it: setting, light, colour, mood, camera and style. "
+    "Do not add any new person, animal or object. Do not say where anything is in the frame (no left, right, centre, "
+    "foreground, background, corner): the boxes decide placement. The boxed subjects listed below are described "
+    "elsewhere: leave them out. Two or three sentences. Output only the caption.")
+
 LAYOUT_BOX_RULES = (
     "\n\nYou are describing ONE boxed region of a picture, not the whole picture. Describe only this region's own "
     "subject: appearance, face, hair, clothing, materials, texture, pose and expression, in vivid concrete detail. "
     "No setting, no background, no scene lighting, no camera or lens words, no other subjects. Keep the identity "
     "and objects the user gave, and every colour exactly as given. Output only the description, one or two sentences.")
-LAYOUT_MAIN_RULES = (
-    "\n\nDescribe only the main subject of the user's text: who or what it is, appearance, face, hair, clothing, "
-    "pose, expression and where it stands in the frame. Leave out any background, location, setting or scene "
-    "lighting from the user's text: the scene is described separately. Keep every colour exactly as given. Output "
-    "only the description, one paragraph.")
+
+
+def _layout_budget(max_tokens, boxes):
+    """(scene tokens, tokens per box). Tested on MOSS SFT: sharing max_tokens (equally, or half to the scene / half to
+    the boxes) still gave 300-1300 character box captions and the subjects left their boxes; 60 tokens a box kept
+    them in place every time, still richer than a hand-written caption."""
+    return min(max_tokens, 160), min(max_tokens, 60)
 
 
 def _parse_layout(layout):
