@@ -237,11 +237,12 @@ class LCVisionPromptEnhancer:
         gen = (temperature, top_p, repetition_penalty)
         summary, items = data["summary"], data["items"]
         main = prompt_text.strip()
-        if main:  # its own pass (merged into the scene rewrite, the model dropped it), told where it stands
-            setting = str(summary.get("caption", "")).strip()
-            main_user = apply_style_tag_to_text(main, style_tag) + (
-                f"\n\nThe picture's setting, keep it exactly (don't move the subject somewhere else): {setting}" if setting else "")
-            main = self._clean(vm, system_prompt + LAYOUT_MAIN_RULES, main_user, max_tokens, *gen, seed, images, fallback=main)
+        if main:  # its own pass, subject only: given the scene too, the model rewrote the setting and dropped the subject
+            main = self._clean(vm, system_prompt + LAYOUT_MAIN_RULES, apply_style_tag_to_text(main, style_tag), max_tokens, *gen, seed,
+                               images, fallback=main)
+            # a caption of another picture keeps its own background ("the background is a street"), which fights the scene
+            kept = [s for s in re.split(r"(?<=[.!?])\s+", main) if not re.search(r"\b(background|backdrop|behind (him|her|them))\b", s, re.I)]
+            main = " ".join(kept) or main
         boxed = [f"- {it.get('label', 'object')}: {it.get('caption', '')}" for it in items if it.get("caption")]
         scene_user = apply_style_tag_to_text(str(summary.get("caption", "")).strip() or "A picture.", style_tag)
         if boxed:
@@ -269,8 +270,10 @@ LAYOUT_BOX_RULES = (
     "No setting, no background, no scene lighting, no camera or lens words, no other subjects. Keep the identity "
     "and objects the user gave, and every colour exactly as given. Output only the description, one or two sentences.")
 LAYOUT_MAIN_RULES = (
-    "\n\nDescribe the main subject in the setting you are given: keep that place, light and time of day, and every "
-    "colour exactly as given. Do not invent a different location. Output only the description, one paragraph.")
+    "\n\nDescribe only the main subject of the user's text: who or what it is, appearance, face, hair, clothing, "
+    "pose, expression and where it stands in the frame. Leave out any background, location, setting or scene "
+    "lighting from the user's text: the scene is described separately. Keep every colour exactly as given. Output "
+    "only the description, one paragraph.")
 
 
 def _parse_layout(layout):
