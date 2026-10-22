@@ -86,6 +86,9 @@ class LCVisionPromptEnhancer:
                 "image_1": ("IMAGE", {"tooltip": "Optional picture the model sees while rewriting (ref_image_0). The Flux 3 edit presets need "
                                                  "it: the picture you edit."}),
                 "image_2": ("IMAGE", {"tooltip": "Optional second picture (ref_image_1)."}),
+                "layout": ("STRING", {"forceInput": True, "tooltip": "Optional MOSS layout (LC MOSS Layout Prompt's prompt). Plugged in, "
+                                                                      "the output is that layout with the boxes kept: your prompt goes first in "
+                                                                      "the scene caption, and the scene and every box are enhanced on their own."}),
             },
         }
 
@@ -124,7 +127,8 @@ class LCVisionPromptEnhancer:
         )
         if not response or "choices" not in response or not response["choices"]:
             raise RuntimeError("[LC Vision] Model returned an empty response.")
-        text = _strip_think_tags((response["choices"][0].get("message", {}).get("content", "") or "").strip())
+        raw = (response["choices"][0].get("message", {}).get("content", "") or "").strip()
+        text = _strip_think_tags(raw)
         return trim_to_sentence(text, response)
 
     def run(self, *args, **kwargs):
@@ -147,6 +151,7 @@ class LCVisionPromptEnhancer:
         seed: int = 0,
         image_1=None,
         image_2=None,
+        layout: str = "",
     ) -> tuple[str]:
         if vision_model is None or (getattr(vision_model, "llm", None) is None
                                     and getattr(vision_model, "build_params", None) is None):
@@ -168,6 +173,11 @@ class LCVisionPromptEnhancer:
             if not system_prompt:
                 raise ValueError(f"[LC Vision] Preset '{preset}' not found in lc_vision_presets.json.")
 
+        data = _parse_layout(layout)
+        if data is not None:
+            return (self._enhance_layout(vision_model, data, system_prompt, prompt_text, style_tag, max_tokens, temperature, top_p,
+                                         repetition_penalty, seed, (image_1, image_2)),)
+
         user_text = prompt_text.strip() or "Describe a scene vividly."
         user_text = apply_style_tag_to_text(user_text, style_tag)
         result = self._generate(vision_model, system_prompt, user_text, max_tokens, temperature, top_p, repetition_penalty, seed,
@@ -187,6 +197,93 @@ class LCVisionPromptEnhancer:
                 result = retried
 
         return (result,)
+
+    def _no_think(self, vm, system_prompt, user, tokens, temperature, top_p, repetition_penalty, seed):
+        """Qwen3 / 3.5, text only: the chat template lets the model open its own reasoning, and this one can reason
+        past any token cap without ever answering. Writing the turn by hand with an empty think block makes it answer
+        straight away (the documented way to switch Qwen3 thinking off)."""
+        from .lc_vision_generate import reset_model_state
+        prompt = (f"<|im_start|>system\n{system_prompt + budget_line(tokens)}<|im_end|>\n<|im_start|>user\n{user}<|im_end|>\n"
+                  "<|im_start|>assistant\n<think>\n\n</think>\n\n")
+        reset_model_state(vm.llm)
+        r = vm.llm.create_completion(prompt=prompt, max_tokens=tokens, temperature=temperature, top_p=top_p,
+                                     repeat_penalty=repetition_penalty, seed=seed, stop=["<|im_end|>", "<|im_start|>"])
+        text = _strip_think_tags((r["choices"][0].get("text") or "").strip())
+        return trim_to_sentence(text, r)
+
+    def _clean(self, vm, system_prompt, user, tokens, temperature, top_p, repetition_penalty, seed, images=(), fallback=""):
+        raw_ok = getattr(vm, "is_qwen3_family", False) and getattr(vm, "llm", None) is not None and not any(i is not None for i in images)
+        if raw_ok:
+            out = self._no_think(vm, system_prompt, user, tokens, temperature, top_p, repetition_penalty, seed)
+        else:
+            out = self._generate(vm, system_prompt, user, tokens, temperature, top_p, repetition_penalty, seed, images=images)
+            if not out.strip() and getattr(vm, "is_qwen3_family", False) and getattr(vm, "llm", None) is not None:
+                print("[LC Vision] layout pass came back empty (reasoning ran out the cap): asking again without reasoning")
+                out = self._no_think(vm, system_prompt, user, tokens, temperature, top_p, repetition_penalty, seed)
+        if _looks_like_leftover_planning(out):
+            out = self._generate(vm, "Output only the final text as one paragraph. No analysis, no planning, no <think>.",
+                                 f"Rewrite into just the final text:\n\n{out}", tokens, 0.4, 0.95, 1.05, seed + 1)
+        out = out.strip()
+        if not out:  # never hand MOSS a blank caption: it drops that subject
+            print("[LC Vision] layout pass still empty: keeping the original text")
+            return fallback
+        return out
+
+    def _enhance_layout(self, vm, data, system_prompt, prompt_text, style_tag, max_tokens, temperature, top_p, repetition_penalty,
+                        seed, images):
+        """A MOSS layout, boxes kept. Rewritten as one string the boxes get lost (or the boxed subjects keep one-line
+        captions next to a full paragraph). Here: the prompt in its own pass, then the scene caption, then every box
+        caption on its own, and the layout goes back together unchanged."""
+        gen = (temperature, top_p, repetition_penalty)
+        summary, items = data["summary"], data["items"]
+        main = prompt_text.strip()
+        if main:  # its own pass (merged into the scene rewrite, the model dropped it), told where it stands
+            setting = str(summary.get("caption", "")).strip()
+            main_user = apply_style_tag_to_text(main, style_tag) + (
+                f"\n\nThe picture's setting, keep it exactly (don't move the subject somewhere else): {setting}" if setting else "")
+            main = self._clean(vm, system_prompt + LAYOUT_MAIN_RULES, main_user, max_tokens, *gen, seed, images, fallback=main)
+        boxed = [f"- {it.get('label', 'object')}: {it.get('caption', '')}" for it in items if it.get("caption")]
+        scene_user = apply_style_tag_to_text(str(summary.get("caption", "")).strip() or "A picture.", style_tag)
+        if boxed:
+            scene_user += "\n\nBoxed subjects (described elsewhere, do not describe):\n" + "\n".join(boxed)
+        scene = self._clean(vm, system_prompt + LAYOUT_SCENE_RULES, scene_user, max_tokens, *gen, seed + 7,
+                            fallback=str(summary.get("caption", "")).strip())
+        summary["caption"] = f"{main} {scene}".strip() if main else scene
+        for n, it in enumerate(items):
+            cap = str(it.get("caption", "")).strip()
+            if cap and it.get("label") != "text":  # a text box writes exactly its text: left alone
+                it["caption"] = self._clean(vm, system_prompt + LAYOUT_BOX_RULES, f"The region: {cap}", min(max_tokens, 200), *gen,
+                                            seed + 101 * (n + 1), fallback=cap)
+        print(f"[LC Vision] Layout enhanced: scene + {len(items)} box(es), boxes kept.")
+        return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+
+
+LAYOUT_SCENE_RULES = (
+    "\n\nYou are writing the scene caption of a picture that also has boxed regions. The boxed subjects are listed "
+    "below: they are described separately, in their own boxes. Do not describe them here and do not add them; at most "
+    "say where they are in passing. Describe the setting, light, colour, mood, camera and style. Output only the "
+    "caption, one paragraph.")
+LAYOUT_BOX_RULES = (
+    "\n\nYou are describing ONE boxed region of a picture, not the whole picture. Describe only this region's own "
+    "subject: appearance, face, hair, clothing, materials, texture, pose and expression, in vivid concrete detail. "
+    "No setting, no background, no scene lighting, no camera or lens words, no other subjects. Keep the identity "
+    "and objects the user gave, and every colour exactly as given. Output only the description, one or two sentences.")
+LAYOUT_MAIN_RULES = (
+    "\n\nDescribe the main subject in the setting you are given: keep that place, light and time of day, and every "
+    "colour exactly as given. Do not invent a different location. Output only the description, one paragraph.")
+
+
+def _parse_layout(layout):
+    """The MOSS layout dict, or None (nothing plugged in / not a layout: the enhancer works as before)."""
+    if not layout or not str(layout).strip().startswith("{"):
+        return None
+    try:
+        data = json.loads(layout)
+    except Exception:
+        return None
+    if isinstance(data, dict) and isinstance(data.get("summary"), dict) and isinstance(data.get("items"), list):
+        return data
+    return None
 
 
 NODE_CLASS_MAPPINGS = {
