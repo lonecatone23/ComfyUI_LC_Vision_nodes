@@ -15,7 +15,9 @@ what comes next. Read only, apart from cached thumbnails.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
+import filecmp
 import json
 import os
 import re
@@ -942,7 +944,7 @@ def update_asset(project: str, file: str, fields: dict) -> dict:
 
 
 def _same_file(a: str, b: str) -> bool:
-    return os.path.getsize(a) == os.path.getsize(b) and open(a, "rb").read() == open(b, "rb").read()
+    return filecmp.cmp(a, b, shallow=False)  # size first, then the bytes in chunks; files are closed
 
 
 def save_project(project: str, data: dict) -> str:
@@ -963,6 +965,18 @@ def save_project(project: str, data: dict) -> str:
     return path
 
 
+def _ffmpeg_bin() -> str | None:
+    ff = shutil.which("ffmpeg")
+    if ff:
+        return ff
+    # no ffmpeg on PATH (common on portable installs): the copy imageio-ffmpeg ships (VHS installs it), as LC_AV does
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
 def thumb(project: str, i: int) -> str | None:
     folder = _folder(project)
     if not folder:
@@ -972,7 +986,7 @@ def thumb(project: str, i: int) -> str | None:
     if not os.path.exists(src):
         return None
     if not os.path.exists(dst) or os.path.getmtime(dst) < os.path.getmtime(src):
-        ff = shutil.which("ffmpeg")
+        ff = _ffmpeg_bin()
         if not ff:
             return None
         subprocess.run([ff, "-y", "-v", "error", "-ss", "2.5", "-i", src, "-frames:v", "1", "-vf", "scale=320:-2", "-q:v", "4", dst],
@@ -984,17 +998,31 @@ try:
     from aiohttp import web
     from server import PromptServer
 
+    def _get_error(route: str, exc: Exception, **empty):
+        # a GET that fails answers {"error"} plus the empty value its callers read, not a bare 500
+        print(f"[LC Vision] {route}: {exc}")
+        return web.json_response({"error": str(exc), **empty}, status=400)
+
     @PromptServer.instance.routes.get("/lc_vision/movie/projects")
     async def _projects_route(request):
-        return web.json_response({"projects": projects()})
+        try:
+            return web.json_response({"projects": projects()})
+        except Exception as exc:
+            return _get_error("movie/projects", exc, projects=[])
 
     @PromptServer.instance.routes.get("/lc_vision/movie/status")
     async def _status_route(request):
-        return web.json_response(status(request.query.get("project", "")))
+        try:
+            return web.json_response(status(request.query.get("project", "")))
+        except Exception as exc:
+            return _get_error("movie/status", exc)
 
     @PromptServer.instance.routes.get("/lc_vision/movie/project")
     async def _project_get(request):
-        return web.json_response(load_project(request.query.get("project", "")))
+        try:
+            return web.json_response(load_project(request.query.get("project", "")))
+        except Exception as exc:
+            return _get_error("movie/project", exc)
 
     @PromptServer.instance.routes.post("/lc_vision/movie/segment")
     async def _segment_post(request):
@@ -1050,11 +1078,17 @@ try:
     @PromptServer.instance.routes.get("/lc_vision/movie/impact")
     async def _impact(request):
         q = request.query
-        return web.json_response(impact(q.get("project", ""), int(q.get("index", "0") or 0), q.get("action", "")))
+        try:
+            return web.json_response(impact(q.get("project", ""), int(q.get("index", "0") or 0), q.get("action", "")))
+        except Exception as exc:
+            return _get_error("movie/impact", exc, warnings=[])
 
     @PromptServer.instance.routes.get("/lc_vision/assets")
     async def _assets(request):
-        return web.json_response(list_assets(request.query.get("project", "")))
+        try:
+            return web.json_response(list_assets(request.query.get("project", "")))
+        except Exception as exc:
+            return _get_error("assets", exc, items=[])
 
     @PromptServer.instance.routes.post("/lc_vision/assets/update")
     async def _assets_update(request):
@@ -1086,7 +1120,12 @@ try:
             i = int(request.query.get("i", "0"))
         except ValueError:
             i = 0
-        path = thumb(request.query.get("project", ""), i)
+        try:
+            # ffmpeg runs in a worker thread, so a Proof Sheet full of new thumbs doesn't block the server
+            path = await asyncio.to_thread(thumb, request.query.get("project", ""), i)
+        except Exception as exc:
+            print(f"[LC Vision] movie/thumb: {exc}")
+            path = None
         if not path:
             return web.Response(status=404)
         return web.FileResponse(path, headers={"Cache-Control": "no-cache"})

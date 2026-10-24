@@ -183,11 +183,11 @@ export async function save(dir, quiet = false, auto = false) {
 const itemsKey = (items) => JSON.stringify((items || []).map((x) => [x.file, x.role, x.name, x.on !== false]));
 
 async function load(dir, name) {
-  const d = await fetch(`/lc_vision/movie/project?project=${encodeURIComponent(name)}&t=${Date.now()}`, { cache: "no-store" }).then((x) => x.json()).catch(() => ({}));
+  const d = await fetch(`/lc_vision/movie/project?project=${encodeURIComponent(name)}&t=${Date.now()}`, { cache: "no-store" }).then((x) => (x.ok ? x.json() : {})).catch(() => ({}));
   const src = await projectSource(dir);
   // the project we are leaving: its saved pictures tell us whether the Assembler still holds just those
   const leaving = src.name && src.name !== name
-    ? await fetch(`/lc_vision/movie/project?project=${encodeURIComponent(src.name)}&t=${Date.now()}`, { cache: "no-store" }).then((x) => x.json()).catch(() => ({}))
+    ? await fetch(`/lc_vision/movie/project?project=${encodeURIComponent(src.name)}&t=${Date.now()}`, { cache: "no-store" }).then((x) => (x.ok ? x.json() : {})).catch(() => ({}))
     : {};
   const pw = widget(src.node, src.key);
   if (pw) pw.value = name;
