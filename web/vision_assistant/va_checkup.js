@@ -1073,10 +1073,28 @@ export async function symptomReport(question) {
   return out;
 }
 
+// token bench 2026-10-25: on 8 GB and less, a 7B+ vision model and long captions cost the most time for the least gain
+export async function checkVisionFit() {
+  const cards = [];
+  const sys = await system();
+  if (!sys.vram || sys.vram > 8.5) return cards;
+  const gb = Math.round(sys.vram);
+  const big = allNodes().filter((n) => n.type === "LCVisionLoader" && active(n)).map((n) => [n, +(/(\d+(?:\.\d+)?)\s*b\b/i.exec(String(valueOf(n, "model_name") || ""))?.[1] || 0)]).filter(([, b]) => b >= 7);
+  const long = allNodes().filter((n) => /^LCVision(Caption|PromptEnhancer)$/.test(n.type) && active(n) && (num(valueOf(n, "max_tokens")) || 0) > 700);
+  if (!big.length && !long.length) return cards;
+  const what = [...big.map(([n, b]) => `- ${label(n)}: ${b}B model`), ...long.map((n) => `- ${label(n)}: max_tokens ${valueOf(n, "max_tokens")}`)];
+  cards.push({
+    level: 1, title: `Your ${gb} GB card is better suited for a 2B or 4B vision model and 250 - 500 tokens`, nodeId: where((big[0] || [])[0] || long[0]),
+    text: `${what.join("\n")}\nOn ${gb} GB the bigger model spills out of VRAM and writes slowly, and every 250 prompt tokens adds about 7% to each image. Use the small setup for test runs (max_tokens around 700) and go bigger for the images that matter.`,
+    actions: [],
+  });
+  return cards;
+}
+
 export async function checkAll() {
   const out = [];
   GATES.clear(); // accepted a license since the last check? ask again
-  for (const f of [checkSwaps, checkNotes, checkErrors, checkCorruption, checkBrokenNodes, checkMissingFiles, checkGatedDownloads, checkClipType, checkStepsModel, checkCommon, checkModelFormat, checkOptimization]) {
+  for (const f of [checkSwaps, checkNotes, checkErrors, checkCorruption, checkBrokenNodes, checkMissingFiles, checkGatedDownloads, checkClipType, checkStepsModel, checkCommon, checkModelFormat, checkOptimization, checkVisionFit]) {
     try {
       out.push(...(await f()));
     } catch (e) {

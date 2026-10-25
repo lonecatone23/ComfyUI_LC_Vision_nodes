@@ -1,0 +1,421 @@
+{
+  "LCVisionLoader": {
+    "description": "Qwen-VL の GGUF モデルと mmproj ビジョンプロジェクターを一度だけ読み込みます。これらの入力が変わらない限り、ComfyUI 自身のノードキャッシュによって、キューをまたいで常駐したままになります。",
+    "inputs": {
+      "model_name": {
+        "tooltip": "models/LLM/GGUF（または 'LLM' フォルダキーに登録された任意のパス）にある、ビジョン対応の GGUF モデル。同じフォルダに mmproj が並んでいるファイルのみ一覧に表示されます。'Download:' が付いたエントリーはまだディスクにありません。選択すると、初回使用時にそれ（と mmproj）がダウンロードされます。上流の QwenVL-Mod 自身の自動ダウンロードと同じ動作です。"
+      },
+      "device": {
+        "tooltip": "auto は、利用可能なら CUDA を優先します。どのオプションも同じインストールで動作します — CPU 推論に CPU 専用ビルドは不要です。"
+      },
+      "n_gpu_layers": {
+        "tooltip": "-1 はすべてのレイヤーを GPU にオフロードします。0 は CPU のみ。それ以外の値はその数のレイヤーをオフロードし、残りは CPU の RAM に置きます。"
+      },
+      "n_ctx": {
+        "tooltip": "モデルが一度に読み書きできる量 (コンテキストウィンドウ、トークン単位) です。使うかどうかにかかわらず、VRAM に先に確保されます: 4096 = 約 0.6 GB、8192 = 1.1 GB、16384 = 2.3 GB、32768 = 4.5 GB。\n4096: 画像1枚と短いプロンプト (LC Vision Danbooru Caption)。\n8192: Caption、Prompt Enhancer、数枚の参照画像。既定値。\n16384 / 32768: 複数の参照や動画フレーム、長い回答を使う Moviemaker。"
+      },
+      "n_batch": {
+        "tooltip": "1回のデコード呼び出しあたりのトークン容量です。n_ubatch も同じ値に設定されます。llama-cpp-python は n_ubatch を n_batch とは別に 512 を既定値にしており (内部では n_ubatch = min(n_batch, n_ubatch))、n_batch だけを上げても n_ubatch が追従しないと何も起きないためです。大きな入力や複数の参照画像があふれる場合は上げてください。1024 にすると 8 GB カードで VRAM を約 0.6 GB 節約でき、1〜2枚の画像のキャプションなら十分です。"
+      },
+      "image_min_tokens": {
+        "tooltip": "-1 = モデルのデフォルト。Qwen-VL モデルが確実にグラウンディングするには 1024 以上が必要です。"
+      },
+      "image_max_tokens": {
+        "tooltip": "-1 = n_batch 以外の上限なし。"
+      },
+      "batch_max_tokens": {
+        "tooltip": "ビジョンチャットハンドラー独自の、画像埋め込みのバッチごとのトークン上限です。n_batch/n_ubatch とは別です。大きな参照を複数使う場合は n_batch と一緒に上げてください。"
+      },
+      "verbose": {
+        "tooltip": "llama.cpp 自身の内部の読み込み/推論の診断情報をコンソールに出力します。ログを読みやすく保つため、デフォルトはオフです。"
+      },
+      "keep_model_loaded": {
+        "tooltip": "On: モデルは実行間も VRAM に残ります（再実行が高速）。Off: すべての LC Vision ノードは回答後にモデルをアンロードするため、画像モデルがカード全体を使え、次のノードや次の実行で再び読み込まれます（数秒）。SDXL / Pony / Illustrious を使うときなど、小さいカードではオフにしてください。"
+      }
+    }
+  },
+  "LCVisionCaption": {
+    "description": "読み込んだ LC Vision モデル、指示、最大3枚の独立した参照画像と参照動画からテキストを生成します。それぞれ1つのバッチにまとめず、プロンプト内で別々にラベル付けされます。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "LC Vision Loader からのハンドルです。Loader 自身の入力が変わらない限り、キューをまたいで常駐します。"
+      },
+      "prompt": {
+        "tooltip": "ユーザーの指示です。リファレンスのラベルは、接続されているものに応じて自動で追加されます。"
+      },
+      "system_prompt": {
+        "tooltip": "応答全体の枠組みを決める指示です: 役割、トーン、出力形式。呼び出しごとのプロンプトと参照画像より前に適用されます。"
+      },
+      "reference_image_1": {
+        "tooltip": "プロンプトでは <Reference 1> とラベル付けされます。"
+      },
+      "reference_image_2": {
+        "tooltip": "プロンプト内では <Reference 2> と表記されます。"
+      },
+      "reference_image_3": {
+        "tooltip": "プロンプト内では <Reference 3> と表記されます。"
+      },
+      "reference_video": {
+        "tooltip": "<Target Video> とラベル付けされた、フレームシーケンスのバッチです。video_max_frames までサンプリングされます。"
+      },
+      "video_max_frames": {
+        "tooltip": "参照動画のフレームは、送信前にこの数まで均等にサンプリングされます。長いクリップのすべてのフレームを送ると、トークン予算を超えてしまいます。"
+      },
+      "style_tag": {
+        "tooltip": "参照の実際の見た目に関係なく、特定のビジュアルスタイルの記述に出力を寄せます。写実的な参照をキャプションしつつ、アニメ/シネマティックなどの出力にしたいときに便利です。'None' はスタイルを制約しません。"
+      },
+      "max_image_side": {
+        "tooltip": "送信前に、参照画像の長辺をこの値まで縮小します。0 = リサイズなし。サイズの大きすぎる参照画像が、元のノードの「exceeding capacity」クラッシュの直接の原因でした。この値と(Loader の)n_batch は、互いに釣り合うように保ってください。"
+      },
+      "jpeg_quality": {
+        "tooltip": "モデルに送る参照の JPEG エンコード品質です。高いほど忠実度は上がりますが、ペイロードが大きくなります。容量の上限に当たる場合は、max_image_side を上げる前にこちらを下げてください。"
+      },
+      "max_tokens": {
+        "tooltip": "長さの上限。モデルには回答をこの範囲に収めるよう指示され（約 0.55 words/token）、それでも超えた場合は、最後の完全な文までテキストが切り詰められます。"
+      },
+      "temperature": {
+        "tooltip": "サンプリングのランダム性。0 = 決定的で文字どおり、高いほど言い回しが多様になりますが、焦点はやや甘くなります。"
+      },
+      "top_p": {
+        "tooltip": "Nucleus sampling: 累積確率がこの値になる最小のトークン集合からのみサンプリングします。低いほど集中し、高いほど多様になります。"
+      },
+      "repetition_penalty": {
+        "tooltip": "モデルがすでに使ったトークンにペナルティを与え、繰り返しやループする出力を抑えます。1.0 = ペナルティなし。"
+      },
+      "seed": {
+        "tooltip": "サンプリングのシード。同じシードと同じ入力なら、ハードウェア/スレッドの非決定性を除き、同じ出力が再現されるはずです。"
+      }
+    }
+  },
+  "LCVisionReviewer": {
+    "description": "品質ゲート: ビジョンモデルに yes/no の質問 (手、顔、文字、アーティファクト、プロンプトとの一致、自作の質問) をして、出来の悪いレンダリングにフラグを立てるかブロックします。判定ではなく候補の絞り込みです。最後は自分の目を信じてください。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "LC Vision Loader からのハンドル。"
+      },
+      "image": {
+        "tooltip": "完成した画像です。4フレームを超えるバッチは動画として扱われ、クリップ全体から数フレームがまとめてチェックされます。"
+      },
+      "hands": {
+        "tooltip": "指: 余分、欠け、癒着。"
+      },
+      "faces": {
+        "tooltip": "溶けた、または二重になった特徴、左右でちぐはぐな目。"
+      },
+      "text": {
+        "tooltip": "看板、ラベル、ロゴの文字を正しく表示します。"
+      },
+      "artifacts": {
+        "tooltip": "歪んだ物体、余分な手足、継ぎ目、にじみ。"
+      },
+      "on_fail": {
+        "tooltip": "flag:常に画像をそのまま渡し、passed を false にしてレポートに理由を書きます。block:チェックに失敗すると、このノードの後ろに接続されたすべてのノード(保存、アップスケーラーなど)を停止します。"
+      },
+      "prompt": {
+        "tooltip": "ここにポジティブプロンプトを接続すると、画像がそれに合っているかもチェックします。"
+      },
+      "custom_checks": {
+        "tooltip": "自作のチェック項目。1行に1つ、yes = 良い になるように書きます。例: Is she wearing a parka?"
+      },
+      "max_failures": {
+        "tooltip": "失敗とみなすまでに許容される、失敗したチェックの数。"
+      },
+      "video_frames": {
+        "tooltip": "動画の場合：クリップ全体のうち、何フレームを見るか。"
+      }
+    }
+  },
+  "LCVisionPromptEnhancer": {
+    "description": "プリセットの指示を使い、LC Vision モデルでプロンプトを書き換えます。画像を任意でつなぐと、編集中の内容を見せられます (Flux 3 の edit プリセットには必須)。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "LC Vision Loader からのハンドル。テキストのみでも問題なく動作します。画像固有のものは必要ありません。"
+      },
+      "prompt_text": {
+        "tooltip": "書き直す元のラフなプロンプト。"
+      },
+      "preset": {
+        "tooltip": "書き換えに使う lc_vision_presets.json の system_prompt を選びます。'Custom' は、custom_system_prompt ソケットからシステムプロンプトを読み込みます(空の場合は 'Enhance' になります)。そのファイルを編集すると、プリセットを追加できます。"
+      },
+      "custom_system_prompt": {
+        "tooltip": "preset が 'Custom' のときだけ使われます — lc_vision_presets.json のエントリーの代わりに、直接読み込まれます。"
+      },
+      "style_tag": {
+        "tooltip": "プリセットがすでに行っている処理に加えて、書き換えたプロンプトを特定のビジュアルスタイルに固定します。'None' はスタイルを制限しません。"
+      },
+      "max_tokens": {
+        "tooltip": "長さの上限。モデルには回答をこの範囲に収めるよう指示され（約 0.55 words/token）、それでも超えた場合は、最後の完全な文までテキストが切り詰められます。"
+      },
+      "temperature": {
+        "tooltip": "サンプリングのランダム性。0 = 決定的で文字どおり、高いほど言い回しが多様になりますが、焦点はやや甘くなります。"
+      },
+      "top_p": {
+        "tooltip": "Nucleus sampling: 累積確率がこの値になる最小のトークン集合からのみサンプリングします。低いほど集中し、高いほど多様になります。"
+      },
+      "repetition_penalty": {
+        "tooltip": "モデルがすでに使ったトークンにペナルティを与え、繰り返しやループする出力を抑えます。1.0 = ペナルティなし。"
+      },
+      "seed": {
+        "tooltip": "サンプリングのシード。同じシードと同じ入力なら、ハードウェア/スレッドの非決定性を除き、同じ出力が再現されるはずです。"
+      },
+      "image_1": {
+        "tooltip": "任意。モデルが書き直し中に見る画像（ref_image_0）。Flux 3 の edit プリセットで必要です：編集する画像。"
+      },
+      "image_2": {
+        "tooltip": "任意の2枚目の画像（ref_image_1）。"
+      }
+    }
+  },
+  "LCVisionMoviemaker": {
+    "description": "動画を、1回の LLM 呼び出しで N 個の独立して生成されるセグメントとして計画します。各セグメントは自己完結した MiniMax H3 プロンプトでありながら、全体の流れは途切れません。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "LC Vision Loader からのハンドル。"
+      },
+      "story": {
+        "tooltip": "全セグメントにわたって計画する、シーン全体またはストーリー。"
+      },
+      "preset": {
+        "tooltip": "各セグメントをどの MiniMax H3 のモード/形式向けに書くか。'Custom' は custom_system_prompt ソケットからシステムプロンプトを読みます (空の場合はこの既定のプリセットにフォールバック)。プリセットは lc_vision_moviemaker_presets.json に追加できます。"
+      },
+      "length_seconds": {
+        "tooltip": "すべてのセグメントを合わせた、計画上の全体の長さです。"
+      },
+      "segments": {
+        "tooltip": "計画する個別の生成呼び出しの数（最大20）。出力ソケットもそれに合わせて増えます。ワイヤーをもう1本追加するとこの値が自動で上がり、直接設定することもできます。"
+      },
+      "custom_system_prompt": {
+        "tooltip": "preset が 'Custom' のときのみ使われます。lc_vision_moviemaker_presets.json のエントリーの代わりに、直接読み込まれます。構造的なタイミング/連続性/参照のルールは、引き続きこの上に適用されます。"
+      },
+      "style_tag": {
+        "tooltip": "すべてのセグメントを特定のビジュアルスタイルに固定します。'None' はスタイルを制限しません。"
+      },
+      "reference_image_1": {
+        "tooltip": "R2VA/FL2VA プリセット用です。モデルには <Reference 1> とラベル付けされ、セグメントのテキストでは <Picture 1> として書き戻されます。"
+      },
+      "reference_image_2": {
+        "tooltip": "<Reference 2> / <Picture 2> としてラベル付けされます。"
+      },
+      "reference_image_3": {
+        "tooltip": "<Reference 3> / <Picture 3> としてラベル付けされます。"
+      },
+      "reference_image_4": {
+        "tooltip": "<Reference 4> / <Picture 4> とラベル付けされます。"
+      },
+      "reference_video": {
+        "tooltip": "フレームシーケンスのバッチ。<Target Video> と表記されます。個々に説明する人物としてではなく、動き/スタイル/連続性の参考として扱われます。video_max_frames まで間引きされます。"
+      },
+      "video_max_frames": {
+        "tooltip": "参照動画のフレームは、送信前にこの数まで均等にサンプリングされます。長いクリップのすべてのフレームを送ると、トークン予算を超えてしまいます。"
+      },
+      "max_image_side": {
+        "tooltip": "送信前に、参照画像の長辺をこの値まで縮小します。0 = リサイズなし。"
+      },
+      "jpeg_quality": {
+        "tooltip": "モデルに送るリファレンス用の JPEG エンコード品質です。"
+      },
+      "end_pad_seconds": {
+        "tooltip": "LLM は経過時間の判断が一貫して苦手で、指定された長さより短くなりがちです。この値の分だけ、モデルに表示される前に length_seconds から静かに差し引かれ（全セグメントに比例して）、モデル自身の短縮が、大きく足りない状態ではなく実際の目標に近い長さに収まります。それでもセグメントが目に見えて早く終わる場合は上げてください。0 で無効になります。"
+      },
+      "max_tokens": {
+        "tooltip": "応答全体 (全セグメントの合計) で生成するトークンの上限です。セグメント数と一緒に上げてください。"
+      },
+      "temperature": {
+        "tooltip": "サンプリングのランダム性。0 = 決定的で文字どおり、高いほど言い回しが多様になりますが、焦点はやや甘くなります。"
+      },
+      "top_p": {
+        "tooltip": "Nucleus サンプリングのしきい値。低い = より集中、高い = よりバラエティが増えます。"
+      },
+      "repetition_penalty": {
+        "tooltip": "モデルがすでに使ったトークンにペナルティを与えます。1.0 = ペナルティなし。"
+      },
+      "seed": {
+        "tooltip": "サンプリング seed。"
+      }
+    }
+  },
+  "LCVisionDirector": {
+    "description": "長い MiniMax H3 動画を、共有のスタイルブロックを持つ短い CUT / CONTINUE セグメントの連なりとして計画します。プランはプロジェクトフォルダーに保存され、再利用されます。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "LC Vision Loader からのハンドルです。保存済みのプランを再利用する場合は、まったく読み込まれません。"
+      },
+      "project": {
+        "tooltip": "プロジェクト名。プランとすべてのセグメントが output/LC_H3/<project>/ に保存されます。"
+      },
+      "story": {
+        "tooltip": "最初から最後までのストーリー全体。誰が登場し、どこで、何が起こるかを書きます。"
+      },
+      "preset": {
+        "tooltip": "プランナーの書き方のルール。NSFW は成人向けシーンを許可します。Custom は custom_system_prompt を使います。"
+      },
+      "segments": {
+        "tooltip": "セグメント数。5 s のセグメントの場合、最初は 5 s で、CONTINUE ごとに約 3.5 s 増えます（オーバーラップは共有されます）：12セグメントで約 44 s、約16セグメントで1分になります。"
+      },
+      "segment_seconds": {
+        "tooltip": "生成される各セグメントの長さ。H3 のフレームグリッドにスナップされます（5.0 = 124フレーム）。短いほど VRAM が少なくなります。"
+      },
+      "overlap_seconds": {
+        "tooltip": "CONTINUE セグメントが、直前のセグメントのどれだけの長さから始まるかです。1.6 s (39 フレーム) が良い既定値です。"
+      },
+      "replan": {
+        "tooltip": "On: 常に新しいプランを書き込みます。Off: ストーリーとタイミングが変わらない限り、このプロジェクトの保存済みプランを再利用します。"
+      },
+      "custom_system_prompt": {
+        "tooltip": "preset が 'Custom' のときのみ使われます。"
+      },
+      "style_tag": {
+        "tooltip": "すべてのセグメントを1つのビジュアルスタイルに固定します。"
+      },
+      "max_tokens": {
+        "tooltip": "プラン全体のトークン上限。セグメントが多い場合は上げてください。"
+      },
+      "extend_segments": {
+        "tooltip": "長いセリフのあるショットには、セリフを短くするよう警告する代わりに、より長い専用セグメント (最大10秒) を割り当てます。オフ: すべてのセグメントが segment_seconds の長さになります。"
+      }
+    }
+  },
+  "LCVisionShotList": {
+    "description": "ショットリスト(場所、キャスト、1行につき1ショット)を入力すると、LC Vision Showrunner が最も読み取りやすいストーリーが得られます:名前付きのキャスト、新しいショットごとの 'Cut to'、フレーミング、カメラの動き、ショットごとの短い1行。AI は使いません。",
+    "inputs": {
+      "shot_list": {
+        "tooltip": "フォームの行をJSONで表したもの。ノード上で入力してください。"
+      }
+    },
+    "outputs": {
+      "0": {
+        "tooltip": "LC Vision Showrunner の story 入力用のストーリーです。"
+      },
+      "1": {
+        "tooltip": "推奨されるセグメント数：ショットごとに1つ（長いセリフは extend_segments によって長いセグメントになります）。Showrunner の segments に接続してください。"
+      },
+      "2": {
+        "tooltip": "ショットリストで直すべき点。問題がなければ空。"
+      }
+    }
+  },
+  "LCVisionStoryboardBuilder": {
+    "description": "Showrunner ムービー用の画像:プロジェクトに足りないもの(顔、場所、アンカー)を見つけ、画像ごとにサンプラー用のプロンプト、latent、seed を1つずつ作ります。LC Vision Storyboard Save に渡してください。",
+    "inputs": {
+      "project_name": {
+        "tooltip": "プロジェクト: LC Vision Showrunner の project_name 出力をつないでください。"
+      },
+      "vae": {
+        "tooltip": "画像モデルの VAE：空の latent のサイズを決めます。"
+      },
+      "base_model": {
+        "tooltip": "画像モデル。プロンプトの読まれ方と、得意なサイズの判断に使います。"
+      },
+      "make": {
+        "tooltip": "missing only: プロジェクトにまだない画像だけ。everything: すべてをもう一度 (自分の画像は置き換えられません)。"
+      },
+      "faces": {
+        "tooltip": "各キャストメンバーの、その look に基づく頭と肩のポートレート。"
+      },
+      "places": {
+        "tooltip": "Shot List の各場所の、人のいない状況説明用の画像。"
+      },
+      "anchors": {
+        "tooltip": "複数人がいる各場所の冒頭のワイドショットです。人物も配置済みで、部屋と誰がどこに立つかを固定します。"
+      },
+      "portrait_size": {
+        "tooltip": "キャストのポートレートの正方形サイズです。"
+      },
+      "landscape_width": {
+        "tooltip": "場所の画像とアンカーの幅。1344 x 768 は、映像の 960 x 544 の形に合います。"
+      },
+      "landscape_height": {
+        "tooltip": "場所の画像とアンカーの高さ。"
+      },
+      "seed": {
+        "tooltip": "各画像の seed はこの値とその名前から決まるので、1枚をやり直しても他の画像はそのまま保たれます。"
+      },
+      "only": {
+        "tooltip": "任意。作り直す名前をカンマ区切りで指定します。例: Earl, the bank lobby。空欄 = make とスイッチが許可するすべて。"
+      },
+      "style": {
+        "tooltip": "任意。すべてのプロンプトに追加される言葉(フィルムの雰囲気、時代など)。"
+      },
+      "style_tag": {
+        "tooltip": "すべての画像の見た目で、他の Vision ノードと同じタグです。from Showrunner = Showrunner の style_tag なので、画像がムービーに揃います。"
+      }
+    }
+  },
+  "LCVisionStoryboardSave": {
+    "description": "Storyboard Builder の画像を input/lc_h3_refs/<project>/ に保存し、プロジェクトに一覧表示します。Showrunner の 📂 Load で Reference Assembler に追加されます。",
+    "inputs": {
+      "images": {
+        "tooltip": "サンプラーからの画像。Builder のジョブごとに1枚。"
+      },
+      "job": {
+        "tooltip": "Builder のジョブ出力(どの画像がどれか)。"
+      }
+    }
+  },
+  "LCVisionStoryboardSheet": {
+    "description": "ノード上のストーリーボードです。ムービーで使える画像(顔、場所、アンカー)ごとにカードがあります。✅ Use でそのカードを Reference Assembler に入れ、↻ で作り直し、✎ でプロンプトを変更します。接続は不要で、Showrunner のプロジェクトに追従します。"
+  },
+  "LCVisionRedirect": {
+    "description": "LC Vision Showrunner が自動で行うようになりました。古いワークフローを開けるように残してあります。前のセグメントが実際にどう終わったかを確認し、次の CONTINUE セグメントの冒頭を、そこから始まるように書き直します(Showrunner がすでに行っている場合は即座に完了します)。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "LC Vision Loader からのハンドルです。セグメントが実際にリダイレクトを必要とするときだけ読み込まれます。"
+      },
+      "plan": {
+        "tooltip": "LC Vision Showrunner 🎬 から。"
+      },
+      "index": {
+        "tooltip": "LC H3 Segment と同じ値に設定してください。0 = まだ保存されていない次のセグメント。"
+      },
+      "enabled": {
+        "tooltip": "Off: プランはそのまま変更されずに通過します。"
+      },
+      "temperature": {
+        "tooltip": "低いほど、書き直しがあなたのプランに近くなります。"
+      }
+    }
+  },
+  "LCVisionDanbooruCaption": {
+    "description": "SDXL、Pony、Illustrious 用のプロンプト：短いキャプション、詳細なキャプション、Danbooru タグ、またはタグ + 1文を、1枚の画像またはラフなプロンプトから作成します。SDXL に収まる短さで、任意の品質タグと対応するネガティブ付きです。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "LC Vision Loader からのハンドル。"
+      },
+      "mode": {
+        "tooltip": "Image analysis:画像からプロンプトを書きます。Prompt enhance:prompt に書かれたアイデアを書き換えます。"
+      },
+      "output": {
+        "tooltip": "short caption (最大80トークン)、detailed caption (150)、Danbooru tags (150)、prompt gen mixed: タグ + 1文 (200)。ファインチューンごとに好みが異なります。Pony と Illustrious はタグ、リアル系のファインチューンはキャプションが合います。"
+      },
+      "prompt": {
+        "tooltip": "Prompt enhance:書き換える元のラフなアイデア。Image analysis では使われません。"
+      },
+      "negative": {
+        "tooltip": "両方のモードで使われる、あなた自身のネガティブプロンプトです。ネガティブ出力の先頭に置かれ、そのあとに自動の解剖/アーティファクト/検閲タグが続きます(重複は除去されます)。"
+      },
+      "style_tag": {
+        "tooltip": "プロンプトを特定のビジュアルスタイルに固定します。'None' は画像やアイデアのままにします。"
+      },
+      "quality_tags": {
+        "tooltip": "品質 / スコアタグを先頭に追加し、その反対のタグをネガティブに追加します。逆効果になることもあるため、既定はオフです。"
+      },
+      "max_tokens": {
+        "tooltip": "すべての出力に共通のプロンプトの最大長です。指示もこれに合わせられます (約 max_tokens / 4 個のタグ、キャプションは1トークンあたり約0.7語)。目安: short caption 80、detailed caption 150、tags 150、mixed 200。"
+      },
+      "temperature": {
+        "tooltip": "低い = 文字通りで再現性が高い。タグ形式のときは低めに。"
+      },
+      "image": {
+        "tooltip": "説明する画像（Image analysis）。バッチの場合は最初のフレームが使われます。"
+      }
+    },
+    "outputs": {
+      "0": {
+        "tooltip": "SDXL / Pony / Illustrious のテキストエンコーダー用のプロンプトです。"
+      },
+      "1": {
+        "tooltip": "対応するネガティブプロンプト (quality_tags がオンのときはスコア / 品質タグ付き)。"
+      }
+    }
+  }
+}
