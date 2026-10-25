@@ -6,6 +6,8 @@ import { api } from "../../../scripts/api.js";
 import * as core from "./va_core.js";
 import * as chat from "./va_chat.js";
 import { highlight, clearGlow, boxOf } from "./va_glow.js";
+import * as i18n from "./va_i18n.js";
+import { t, BY_CODE } from "./va_i18n.js";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 // a tour is about the workflow's top level, also while the canvas shows the inside of a subgraph
@@ -298,20 +300,106 @@ function place() {
   play.raf = requestAnimationFrame(place);
 }
 
+// ------------------------------------------------------------------ languages: a saved tour can carry translations
+// tour.lang = the language its author wrote it in (tours from before this are English). Each step keeps its own
+// translations: step.i18n = {zh: {title, text, src, why: {"<node>|<widget>": {text, src}}}}, the tour's title in
+// tour.i18n = {zh: {title}}. src = a hash of the original it was made from, so a step (or a setting note) edited
+// later plays in the original until it is translated again. The reader's language is LC123's Note language.
+export function hash(s) { // the same FNV-1a as LC Note, so translation tools can share it
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(16);
+}
+export const stepSrc = (s) => hash(`${s.title || ""}\u0001${s.text || ""}`);
+const whyKey = (x) => `${x.node}|${x.widget}`;
+export const sourceLang = (tour) => tour?.lang || "en";
+export const langLabel = (code) => BY_CODE[code]?.[1] || code;
+
+/** Languages the tour can play in: its original first, then each one with at least one current step. */
+export function languages(tour) {
+  const have = new Set();
+  for (const s of tour?.steps || []) for (const [code, x] of Object.entries(s.i18n || {})) if (x?.src === stepSrc(s)) have.add(code);
+  have.delete(sourceLang(tour));
+  return [sourceLang(tour), ...[...have].sort()];
+}
+
+/** Translate the saved tour into `code` with LC Vision's local translator (one model load for the whole tour) and keep
+ * it in the tour, per step. Allowed on a locked tour: the original words don't change. Returns {done, warnings}. */
+export async function translate(code) {
+  const tr = extra().tour;
+  if (!tr) throw new Error(t("No saved tour to translate."));
+  const target = BY_CODE[code]?.[2];
+  if (!target || code === sourceLang(tr)) throw new Error(t("Pick a language other than the tour's own (LC Settings > Notes > Note language)."));
+  const items = [{ title: tr.title || "", text: "" }];
+  const map = []; // what each item is: ["step", i] / ["why", i, key]
+  tr.steps.forEach((s, i) => {
+    items.push({ title: s.title || "", text: s.text || "" });
+    map.push(["step", i]);
+    for (const x of s.settings || []) if (x.why) {
+      items.push({ text: x.why });
+      map.push(["why", i, whyKey(x), x.why]);
+    }
+  });
+  const r = await api.fetchApi("/lc_vision/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items, target }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error || !Array.isArray(j.items)) throw new Error(j.error || r.statusText || t("The translation failed."));
+  const rows = j.items;
+  tr.i18n = { ...(tr.i18n || {}), [code]: { title: rows[0]?.title || tr.title } };
+  const warnings = rows.filter((x) => x.warning).map((x) => x.warning);
+  map.forEach((m, k) => {
+    const row = rows[k + 1];
+    if (!row) return;
+    const s = tr.steps[m[1]];
+    s.i18n = s.i18n || {};
+    const cur = s.i18n[code] || {};
+    if (m[0] === "step") s.i18n[code] = { ...cur, title: row.title || s.title, text: row.text || s.text, src: stepSrc(s), why: cur.why || {} };
+    else (s.i18n[code] = { ...cur, why: { ...(cur.why || {}), [m[2]]: { text: row.text, src: hash(m[3]) } } });
+  });
+  touch();
+  return { done: tr.steps.length, warnings };
+}
+
+/** Steps with a current translation into `code`, out of all steps (for "12 of 14 steps in 中文"). */
+export const translatedCount = (tour, code) => (tour?.steps || []).filter((s) => s.i18n?.[code]?.src === stepSrc(s)).length;
+
+/** The tour as a reader of `code` sees it: translated where current, the original elsewhere. Steps keep their order. */
+export function localize(tour, code) {
+  if (!tour || !code || code === sourceLang(tour)) return tour;
+  const steps = tour.steps.map((s) => {
+    const tr = s.i18n?.[code];
+    if (!tr || tr.src !== stepSrc(s)) return s;
+    const settings = (s.settings || []).map((x) => {
+      const w = tr.why?.[whyKey(x)];
+      return w && x.why && w.src === hash(x.why) ? { ...x, why: w.text } : x;
+    });
+    return { ...s, title: tr.title || s.title, text: tr.text || s.text, settings };
+  });
+  return { ...tour, title: tour.i18n?.[code]?.title || tour.title, steps };
+}
+
 function drawCard() {
   const { tour, i } = play;
   const s = tour.steps[i];
   const last = i === tour.steps.length - 1;
+  const L = { back: t("‹ Back"), next: t("Next ›"), finish: t("Finish"), end: t("End the tour (Esc)"), show: t("Show this setting") };
+  const langs = languages(play.base);
+  const flip = langs.length > 1 ? `<button class="vt-x vt-lang" data-lang title="${esc(langs.map(langLabel).join(" / "))}">${esc(langLabel(play.lang))}</button>` : "";
   play.card.innerHTML = `
-    <div class="vt-head"><span>${esc(tour.title)} · step ${i + 1} of ${tour.steps.length}</span><button class="vt-x" data-t="exit" title="End the tour (Esc)">✕</button></div>
+    <div class="vt-head"><span>${esc(tour.title)} · ${esc(t("step {i} of {n}", { i: i + 1, n: tour.steps.length }))}</span>${flip}<button class="vt-x" data-t="exit" title="${esc(L.end)}">✕</button></div>
     <div class="vt-title">${esc(s.title)}</div>
     <div class="vt-text">${esc(s.text)}</div>
-    ${s.settings.length ? `<div class="vt-sets">${s.settings.map((x, k) => `<div class="vt-set" data-k="${k}" title="Show this setting"><span class="vt-num">${k + 1}</span><span><b>${esc(core.nodeLabel(byId(x.node)))} › ${esc(widgetLabel(x.node, x.widget))}</b>${x.why ? `: ${esc(x.why)}` : ""}</span></div>`).join("")}</div>` : ""}
+    ${s.settings.length ? `<div class="vt-sets">${s.settings.map((x, k) => `<div class="vt-set" data-k="${k}" title="${L.show}"><span class="vt-num">${k + 1}</span><span><b>${esc(core.nodeLabel(byId(x.node)))} › ${esc(widgetLabel(x.node, x.widget))}</b>${x.why ? `: ${esc(x.why)}` : ""}</span></div>`).join("")}</div>` : ""}
     <div class="vt-foot">
-      <button class="vt-btn" data-t="back" ${i ? "" : "disabled"}>‹ Back</button>
+      <button class="vt-btn" data-t="back" ${i ? "" : "disabled"}>${L.back}</button>
       <span class="vt-dots">${tour.steps.map((_, k) => `<i class="${k === i ? "on" : ""}" data-go="${k}" title="${esc(tour.steps[k].title)}"></i>`).join("")}</span>
-      <button class="vt-btn pri" data-t="${last ? "exit" : "next"}">${last ? "Finish" : "Next ›"}</button>
+      <button class="vt-btn pri" data-t="${last ? "exit" : "next"}">${last ? L.finish : L.next}</button>
     </div>`;
+  const lb = play.card.querySelector("[data-lang]");
+  if (lb) lb.onclick = () => {
+    play.lang = langs[(langs.indexOf(play.lang) + 1) % langs.length];
+    play.tour = localize(play.base, play.lang);
+    drawCard();
+  };
   play.card.querySelectorAll("[data-t]").forEach((b) => (b.onclick = () => (b.dataset.t === "exit" ? stop() : go(play.i + (b.dataset.t === "next" ? 1 : -1)))));
   play.card.querySelectorAll("[data-go]").forEach((d) => (d.onclick = () => go(Number(d.dataset.go))));
   play.card.querySelectorAll("[data-k]").forEach((d) => (d.onclick = () => {
@@ -353,7 +441,11 @@ export function start(tour, i = 0, onStep) {
     document.addEventListener("keydown", onKey, true);
     play.raf = requestAnimationFrame(place);
   }
-  play.tour = tour;
+  // the reader's language when the tour has it, else English (the card's language button switches)
+  const want = i18n.lang();
+  play.base = tour;
+  play.lang = languages(tour).includes(want) ? want : sourceLang(tour);
+  play.tour = localize(tour, play.lang);
   play.onStep = onStep;
   go(i);
   setTimeout(() => play && go(play.i), 400); // a workflow that just opened restores its own view a moment later
@@ -377,6 +469,7 @@ st.textContent = `
 .vt-card{position:fixed;z-index:1000;width:${CARD_W}px;box-sizing:border-box;background:var(--comfy-menu-bg,#222);color:var(--fg-color,#ddd);border:1px solid #ffb84a;border-radius:12px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.5);font:13px/1.45 sans-serif}
 .vt-head{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--descrip-text,#999)}
 .vt-x{background:none;border:0;color:var(--descrip-text,#999);cursor:pointer;font-size:14px}
+.vt-lang{font-size:11px;border:1px solid var(--border-color,#555);border-radius:8px;padding:0 6px;margin:0 6px 0 auto}
 .vt-title{font-weight:700;font-size:15px;margin:4px 0}
 .vt-text{margin-bottom:6px}
 .vt-sets{display:flex;flex-direction:column;gap:4px;margin:6px 0;padding-top:6px;border-top:1px dashed var(--border-color,#444)}
@@ -501,13 +594,13 @@ export function suggest() {
     steps.push({ st: it.st, gs: [it.g] });
   }
   const gi = (g) => groupsOf().indexOf(g);
-  const name = (g) => String(g.title || "Step").replace(/^#\s*/, "").trim();
+  const name = (g) => String(g.title || t("Step")).replace(/^#\s*/, "").trim();
   if (!steps.length) { // no groups: the columns parts() finds
     return parts().map((p) => ({ title: p.label, text: "", nodes: p.nodes.map((n) => n.id), groups: [], settings: [] }));
   }
   return steps.map(({ st, gs }) => ({
     title: gs.map(name).join(" + ").slice(0, 80),
-    text: st ? st.text : "",
+    text: st ? t(st.text) : "", // the starter line in the author's language
     groups: gs.map((g) => ({ title: g.title, index: gi(g) })),
     nodes: [],
     settings: stageSettings(st, gs),

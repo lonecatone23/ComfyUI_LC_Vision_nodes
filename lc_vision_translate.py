@@ -56,7 +56,22 @@ _NUM = re.compile(r"(?<![A-Za-z_\d.])\d+(?:[.,]\d+)?(?!\d)")
 
 
 def _numbers(text: str) -> list[str]:
-    return sorted(_NUM.findall(re.sub(r"⟦\d+⟧", " ", text)))
+    return sorted(n.replace(",", "") for n in _NUM.findall(re.sub(r"⟦\d+⟧", " ", text)))
+
+
+def _lost_numbers(want: list[str], got: list[str]) -> list[str]:
+    """Numbers of the original missing from the translation (extra ones are fine: a language may spell a list out)."""
+    left = list(got)
+    lost = []
+    for n in want:
+        if n in left:
+            left.remove(n)
+        else:
+            lost.append(n)
+    return lost
+
+
+_WARN: list[str] = []  # soft problems of the current request (numbers to check); reset per request under _LOCK
 
 
 def _clean(out: str) -> str:
@@ -83,10 +98,11 @@ def _pick_model(requested: str | None):
 def _run(llm, system: str, text: str, target: str, name: str, what: str) -> str:
     body, saved = _protect(text)
     want_nums = _numbers(body)
+    best = None  # (lost numbers, text): links and code all kept, only numbers off
     for attempt, temp in enumerate((0.2, 0.05, 0.4)):
         r = llm.create_chat_completion(
             messages=[{"role": "system", "content": system}, {"role": "user", "content": body}],
-            max_tokens=min(12000, 200 + len(body) * 3),
+            max_tokens=max(256, min(12000, 200 + len(body) * 3, _CTX["ctx"] - len(body) // 3 - len(system) // 3 - 64)),
             temperature=temp,
             top_p=0.9,
             repeat_penalty=1.05,
@@ -95,32 +111,80 @@ def _run(llm, system: str, text: str, target: str, name: str, what: str) -> str:
         restored, missing = _restore(out, saved)
         # a marker the model invented (not one of ours) must never reach the note
         restored = re.sub(r"\s*⟦\d+⟧", "", restored).strip()
-        if out and not missing and _numbers(out) != want_nums:
-            missing = ["numbers"]
         if out and not missing:
-            print(f"[LC Vision] translated note {what} to {target} with {name}")
-            return restored
+            lost = _lost_numbers(want_nums, _numbers(out))
+            if not lost:
+                print(f"[LC Vision] translated note {what} to {target} with {name}")
+                return restored
+            if best is None or len(lost) < len(best[0]):
+                best = (lost, restored)
+            missing = ["numbers"]
         print(f"[LC Vision] {what} attempt {attempt + 1} lost links, code or numbers ({missing[:3]}), retrying")
-    raise RuntimeError("The model kept changing links, code or numbers in the note. Try again, or shorten the note.")
+    if best is not None:  # links and code are fine, only numbers moved: keep the closest try and say which to check
+        nums = ", ".join(dict.fromkeys(best[0]))[:80]
+        _WARN.append(f"check these numbers in the {what}: {nums}")
+        print(f"[LC Vision] translated note {what} to {target} with {name}, numbers to check: {nums}")
+        return best[1]
+    raise RuntimeError("The model kept changing links or code in the note. Try again, or shorten the note.")
+
+
+_CTX = {"ctx": 16384}  # context of the model loaded for the current request (sizes the replies and the chunks)
 
 
 def _llm(requested_model):
+    """Load a model the way the Vision Assistant chat picks one: what fits this card (half of it, 11 GB at most), after
+    ComfyUI is asked to make room; nothing fits = the smallest model on the CPU (under 1 GB of VRAM, slow but safe).
+    The old way loaded the biggest 8B at 16k on the GPU whatever the card, about 10 - 11 GB."""
     from llama_cpp import Llama
 
-    name, path = _pick_model(requested_model)
-    if not path:
-        raise RuntimeError(
+    from .lc_vision_assistant import _free as _free_chat, _llama_kwargs, _make_room, _plan_for
+
+    _free_chat()  # an idle chat model would sit next to this one
+    plan = _plan_for(requested_model or None)
+    if not plan["path"]:
+        raise RuntimeError(plan["why"] or (
             "No LC Vision model found. Run an LC Vision Loader once to download one, "
-            "or put a Qwen-VL .gguf (with its mmproj) in models/LLM/GGUF."
-        )
+            "or put a Qwen-VL .gguf (with its mmproj) in models/LLM/GGUF."))
     try:
         import torch
 
-        gpu = -1 if torch.cuda.is_available() else 0
+        gpu = -1 if torch.cuda.is_available() and plan["mode"] == "gpu" else 0
     except Exception:
         gpu = 0
-    qwen3 = "qwen3" in (gguf_architecture(path) or "").lower()
-    return Llama(model_path=path, n_ctx=16384, n_gpu_layers=gpu, verbose=False), name, qwen3
+    if gpu:
+        _make_room(plan["need_gb"])
+    _CTX["ctx"] = plan["ctx"]
+    print(f"[LC Vision] translator: {plan['name']} at {plan['ctx'] // 1024}k context on the "
+          f"{'GPU, about ' + str(plan['need_gb']) + ' GB' if gpu else 'CPU'} ({plan['vram_gb']} GB card)")
+    qwen3 = "qwen3" in (gguf_architecture(plan["path"]) or "").lower()
+    return Llama(**_llama_kwargs(plan["path"], plan["ctx"], gpu)), plan["name"], qwen3
+
+
+def _chunks(text: str, count) -> list[str]:
+    """Split a long note so each piece and its translation fit the context, measured in the model's own tokens
+    (tables and links cost far more tokens than prose). A translation can run ~1.2x the source, so a piece gets
+    under half of what's left after the instructions. Blank lines first, never inside a code block; a single
+    block that is still too big (a long table) splits between its lines."""
+    room = max(300, int((_CTX["ctx"] - 600) / 2.3))
+    if count(text) <= room:
+        return [text]
+    out, cur, fence = [], "", False
+    pieces = []
+    for para in re.split(r"(\n\s*\n)", text):
+        if para.count("```") % 2:
+            fence = not fence
+        if not fence and para.strip() and count(para) > room:  # a block too big on its own: by lines
+            pieces += [ln + "\n" for ln in para.split("\n")]
+        else:
+            pieces.append(para)
+    for para in pieces:
+        if cur.strip() and count(cur + para) > room and not fence:
+            out.append(cur)
+            cur = ""
+        cur += para
+    if cur.strip():
+        out.append(cur)
+    return out
 
 
 def _free(llm):
@@ -202,22 +266,42 @@ def _write_note(workflow: str, requested_model: str | None):
 
 def _translate(text: str, target: str, requested_model: str | None, title: str | None = None):
     """Returns (text, title). The title is best effort: None if it could not be translated."""
-    from llama_cpp import Llama
-
-    name, path = _pick_model(requested_model)
-    if not path:
-        raise RuntimeError(
-            "No LC Vision model found. Run an LC Vision Loader once to download one, "
-            "or put a Qwen-VL .gguf (with its mmproj) in models/LLM/GGUF."
-        )
+    llm, name, qwen3 = _llm(requested_model)
     try:
-        import torch
+        return _translate_with(llm, name, qwen3, text, target, title)
+    finally:
+        _free(llm)
 
-        gpu = -1 if torch.cuda.is_available() else 0
-    except Exception:
-        gpu = 0
-    qwen3 = "qwen3" in (gguf_architecture(path) or "").lower()
 
+def _translate_many(items: list, target: str, requested_model: str | None):
+    """Several texts (a guided tour's steps and setting notes) with one model load: [{text, title?}] ->
+    [{text, title, warning?}]. An item that fails keeps its original text and says so."""
+    llm, name, qwen3 = _llm(requested_model)
+    out = []
+    try:
+        for it in items:
+            text, title = str(it.get("text") or ""), str(it.get("title") or "")
+            if not text.strip() and not title.strip():
+                out.append({"text": text, "title": title})
+                continue
+            before = len(_WARN)
+            try:
+                if text.strip():
+                    t_text, t_title = _translate_with(llm, name, qwen3, text, target, title)
+                else:  # a title alone
+                    t_text, t_title = "", _translate_with(llm, name, qwen3, title, target, None)[0].splitlines()[0].strip()
+                row = {"text": t_text, "title": t_title or title}
+            except Exception as e:
+                row = {"text": text, "title": title, "warning": f"kept in the original: {e}"}
+            if len(_WARN) > before:
+                row["warning"] = "; ".join(_WARN[before:])
+            out.append(row)
+        return out
+    finally:
+        _free(llm)
+
+
+def _translate_with(llm, name, qwen3, text: str, target: str, title: str | None = None):
     system = (
         f"You are a professional translator. Translate the user's Markdown document into {target}. "
         "Keep the Markdown structure exactly: the same headings, lists, tables, bold and italics, "
@@ -231,26 +315,25 @@ def _translate(text: str, target: str, requested_model: str | None, title: str |
         "If a word is a name that should not be translated, keep it. "
         "Output only the translated title on one line, with nothing added." + (" /no_think" if qwen3 else "")
     )
-    llm = Llama(model_path=path, n_ctx=16384, n_gpu_layers=gpu, verbose=False)
-    try:
+    parts = _chunks(text, lambda s: len(llm.tokenize(s.encode("utf-8"), add_bos=False)))  # a long note on a small card goes through in pieces
+    if len(parts) == 1:
         out = _run(llm, system, text, target, name, "text")
-        out_title = None
-        if title and title.strip():
+    else:
+        done = []
+        for k, p in enumerate(parts):
             try:
-                out_title = _run(llm, title_system, title.strip(), target, name, "title").splitlines()[0].strip() or None
-            except Exception as e:
-                print(f"[LC Vision] title not translated ({e}); the note shows the original title twice")
-        return out, out_title
-    finally:
-        del llm
-        gc.collect()
+                done.append(_run(llm, system, p, target, name, f"text (part {k + 1} of {len(parts)})").strip())
+            except RuntimeError:  # one stubborn piece stays in the original rather than losing the whole note
+                done.append(p.strip())
+                _WARN.append(f"part {k + 1} of {len(parts)} kept in the original language")
+        out = "\n\n".join(done)
+    out_title = None
+    if title and title.strip():
         try:
-            import torch
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:
-            pass
+            out_title = _run(llm, title_system, title.strip(), target, name, "title").splitlines()[0].strip() or None
+        except Exception as e:
+            print(f"[LC Vision] title not translated ({e}); the note shows the original title twice")
+    return out, out_title
 
 
 try:
@@ -267,7 +350,16 @@ try:
             ok = False
         models = sorted(_discover_vision_models()) if ok else []
         default = _pick_model(None)[0] if models else ""
-        return web.json_response({"available": ok and bool(models), "models": models, "default": default})
+        plan = {}
+        if models:  # what a translation would load on this card: "cpu" = small card, slow (the pages warn first)
+            try:
+                from .lc_vision_assistant import _plan_for
+
+                p = _plan_for(None)
+                plan = {"mode": p["mode"], "name": p["name"], "vram_gb": p["vram_gb"], "need_gb": p["need_gb"]}
+            except Exception:
+                plan = {}
+        return web.json_response({"available": ok and bool(models), "models": models, "default": default, "plan": plan})
 
     @PromptServer.instance.routes.post("/lc_vision/translate")
     async def _translate_route(request):
@@ -275,10 +367,22 @@ try:
 
         data = await request.json()
         text, target = data.get("text") or "", data.get("target") or ""
+        if isinstance(data.get("items"), list) and target:  # a batch (a guided tour): one model load for all of it
+            if not _LOCK.acquire(blocking=False):
+                return web.json_response({"error": "Another translation is still running."}, status=409)
+            _WARN.clear()
+            try:
+                rows = await asyncio.get_running_loop().run_in_executor(None, _translate_many, data["items"][:200], target, data.get("model"))
+                return web.json_response({"items": rows})
+            except Exception as e:
+                return web.json_response({"error": str(e)}, status=500)
+            finally:
+                _LOCK.release()
         if not text.strip() or not target:
             return web.json_response({"error": "Nothing to translate."}, status=400)
         if not _LOCK.acquire(blocking=False):
             return web.json_response({"error": "Another translation is still running."}, status=409)
+        _WARN.clear()
         try:
             if data.get("task") == "spelling":
                 out, title = await asyncio.get_running_loop().run_in_executor(None, _spelling, text, data.get("model"), data.get("title"))
@@ -286,7 +390,7 @@ try:
                 out, title = await asyncio.get_running_loop().run_in_executor(
                     None, _translate, text, target, data.get("model"), data.get("title")
                 )
-            return web.json_response({"text": out, "title": title})
+            return web.json_response({"text": out, "title": title, **({"warning": "; ".join(_WARN)} if _WARN else {})})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
         finally:

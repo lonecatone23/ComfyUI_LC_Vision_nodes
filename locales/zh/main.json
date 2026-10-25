@@ -1,0 +1,19 @@
+{
+  "settings": {
+    "LCVision_Assistant_Enabled": {
+      "tooltip": "在左侧边栏显示 Vision Assistant：快照、你的资料库、检查和聊天。关闭会移除该标签页并停止它的检查。"
+    },
+    "LCVision_BatchSnapshot_Enabled": {
+      "tooltip": "运行开始前，检查运行次数、批量大小、种子模式、输出尺寸和放大。只有看起来像是失误时才会停下来询问：超过 16 张图、固定种子跑多次、对很多图做大倍数放大。"
+    },
+    "LCVision_Chat_Model": {
+      "tooltip": "Auto 会选择你的显卡装得下的最大模型，并且只在聊天时载入（最后一次回答一分钟后或你排队运行时卸载）：\n20 GB 以上显卡：8B Q8，16k 上下文，约 10 GB。还可以生成引导教程。\n16 GB：8B Q5，8k，约 7 GB。\n12 GB：4B Q8，8k，约 5 GB。\n8 GB：4B Q4，8k，约 3.5 GB。\n更小：CPU 聊天，显存不到 1 GB，每次回答 10 到 30 秒。\n检查、快照和已保存的教程从不占用显存。\nOff = 从不载入聊天模型。"
+    },
+    "LCVision_Loader_DefaultCtx": {
+      "tooltip": "视觉模型一次能读写多少内容。这部分会预先占用，不管用没用，所以越小越省内存：\n4096 = 约 0.6 GB：一张图加一段短提示词（Danbooru Caption）。\n8192 = 约 1.1 GB：Caption、Prompt Enhancer、几张参考图。大多数人的最佳选择。\n16384 = 约 2.3 GB / 32768 = 约 4.5 GB：带多张参考图或视频帧的 Moviemaker。\n只对新建的 loader 生效。已保存的工作流保留它们自己的值。"
+    },
+    "LCVision_Models": {
+      "tooltip": "LC Vision 可以使用的视觉模型，以及为它专门准备的模型的下载按钮。"
+    }
+  }
+}

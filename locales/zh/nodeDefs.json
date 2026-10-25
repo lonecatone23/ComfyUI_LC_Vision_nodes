@@ -1,0 +1,421 @@
+{
+  "LCVisionLoader": {
+    "description": "一次性加载 Qwen-VL GGUF 模型 + mmproj 视觉投影器。只要这些输入不变，ComfyUI 自带的节点缓存会让它在多次队列间保持驻留。",
+    "inputs": {
+      "model_name": {
+        "tooltip": "在 models/LLM/GGUF（或在 'LLM' 文件夹键下注册的任何路径）中找到的支持视觉的 GGUF 模型——只列出同一文件夹中带有 mmproj 配套文件的模型。以 'Download:' 开头的条目尚未下载到本地——选中后会在首次使用时下载（连同其 mmproj），与上游 QwenVL-Mod 自身的自动下载行为一致。"
+      },
+      "device": {
+        "tooltip": "auto 在可用时优先选择 CUDA。任何选项都可在同一套安装下使用 -- CPU 推理不需要单独的纯 CPU 版本。"
+      },
+      "n_gpu_layers": {
+        "tooltip": "-1 把所有层卸载到 GPU。0 强制仅用 CPU。其他值则卸载相应数量的层，其余留在 CPU 内存。"
+      },
+      "n_ctx": {
+        "tooltip": "模型一次能读写的量（context window，单位 token）。无论是否用到，都会预先占用 VRAM：4096 = 约 0.6 GB，8192 = 1.1 GB，16384 = 2.3 GB，32768 = 4.5 GB。\n4096：一张图加短提示词（LC Vision Danbooru Caption）。\n8192：Caption、Prompt Enhancer、几张参考图。默认值。\n16384 / 32768：带多张参考图或视频帧、回答较长的 Moviemaker。"
+      },
+      "n_batch": {
+        "tooltip": "每次解码调用的 token 容量。同时把 n_ubatch 设为相同的值 -- llama-cpp-python 默认让 n_ubatch 独立取 512(内部为 n_ubatch = min(n_batch, n_ubatch)),所以只调大 n_batch 而 n_ubatch 不跟着变,实际上不会有任何效果。如果大图或多参考图输入溢出,请调高此值。1024 在 8 GB 显卡上可节省约 0.6 GB VRAM,对一两张图的描述足够用。"
+      },
+      "image_min_tokens": {
+        "tooltip": "-1 = 模型默认值。Qwen-VL 模型至少需要 1024 才能可靠定位。"
+      },
+      "image_max_tokens": {
+        "tooltip": "-1 = 除 n_batch 外不设上限。"
+      },
+      "batch_max_tokens": {
+        "tooltip": "vision chat handler 自己的图像 embedding 每批 token 上限，独立于 n_batch/n_ubatch。使用多张大参考图时，与 n_batch 一起调高。"
+      },
+      "verbose": {
+        "tooltip": "将 llama.cpp 自身的内部加载/推理诊断信息输出到控制台。默认关闭，以保持日志易读。"
+      },
+      "keep_model_loaded": {
+        "tooltip": "开启：模型在两次运行之间保留在 VRAM 中（重跑更快）。关闭：每个 LC Vision 节点答完后都会卸载它，让图像模型独占整张显卡，下个节点或下次运行再重新加载（需几秒）。显存较小的显卡建议关闭，例如搭配 SDXL / Pony / Illustrious 时。"
+      }
+    }
+  },
+  "LCVisionCaption": {
+    "description": "根据已加载的 LC Vision 模型、一条指令，以及最多三张独立参考图和一个参考视频生成文本——每项在提示词中分别标注，而不是合并成一个 batch。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "来自 LC Vision Loader 的句柄。只要 Loader 自己的输入不变,就会在多次排队之间一直驻留。"
+      },
+      "prompt": {
+        "tooltip": "用户指令。已连接的内容会自动加上参考标签。"
+      },
+      "system_prompt": {
+        "tooltip": "为整个回复定调的指令——角色、语气和输出格式。先于每次调用的提示词和参考图生效。"
+      },
+      "reference_image_1": {
+        "tooltip": "在提示词中标记为 <Reference 1>。"
+      },
+      "reference_image_2": {
+        "tooltip": "在提示词中标记为 <Reference 2>。"
+      },
+      "reference_image_3": {
+        "tooltip": "在提示词中标记为 <Reference 3>。"
+      },
+      "reference_video": {
+        "tooltip": "一批帧序列，标记为 <Target Video>。会被采样到 video_max_frames。"
+      },
+      "video_max_frames": {
+        "tooltip": "参考视频帧在发送前会均匀抽样到这个数量，因为发送长片段的每一帧会超出 token 预算。"
+      },
+      "style_tag": {
+        "tooltip": "无论参考图实际观感如何，都将回答引向指定的视觉风格描述——适用于为写实参考图生成标题，但想要输出动漫/电影感等画面框架的情况。'None' 表示不限定风格。"
+      },
+      "max_image_side": {
+        "tooltip": "发送前把任何参考图的长边缩小到这个值。0 = 不缩放。过大的参考图是原节点出现 'exceeding capacity' 崩溃的直接原因；请让它与 n_batch（在 Loader 上）保持相称。"
+      },
+      "jpeg_quality": {
+        "tooltip": "发送给模型的参考图的 JPEG 编码质量。越高 = 保真度越好但数据量越大 -- 如果遇到容量限制,先降低此值,再考虑提高 max_image_side。"
+      },
+      "max_tokens": {
+        "tooltip": "长度上限。会告知模型将回答控制在此范围内（约每 token 0.55 个词），如果仍然超出，文本会被截断到最后一个完整的句子。"
+      },
+      "temperature": {
+        "tooltip": "采样随机性。0 = 确定且字面，越高 = 措辞越多样，但会牺牲一些专注度。"
+      },
+      "top_p": {
+        "tooltip": "Nucleus sampling：只从累计概率达到此值的最小 token 集合中采样。越低 = 越集中，越高 = 越多样。"
+      },
+      "repetition_penalty": {
+        "tooltip": "惩罚模型已经用过的 token，以减少重复或循环输出。1.0 = 不惩罚。"
+      },
+      "seed": {
+        "tooltip": "采样 seed。相同 seed 加相同输入应能复现相同输出，硬件/线程的不确定性除外。"
+      }
+    }
+  },
+  "LCVisionReviewer": {
+    "description": "质量关卡:向视觉模型提是/否问题(手、脸、文字、伪影、与 prompt 的匹配度,以及你自己的问题),并标记或拦截不合格的渲染。只是候选筛选,不是裁判:相信你自己的眼睛。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "来自 LC Vision Loader 的句柄。"
+      },
+      "image": {
+        "tooltip": "成品图像。超过 4 帧的批次会被视为视频：会综合检查片段中抽取的若干帧。"
+      },
+      "hands": {
+        "tooltip": "手指:多余、缺失或粘连。"
+      },
+      "faces": {
+        "tooltip": "融化或重复的特征、不匹配的眼睛。"
+      },
+      "text": {
+        "tooltip": "招牌、标签和标志的文字拼写正确。"
+      },
+      "artifacts": {
+        "tooltip": "变形的物体、多余的肢体、接缝、拖影。"
+      },
+      "on_fail": {
+        "tooltip": "flag：始终放行图像，只是把 passed 设为 false 并在报告中说明原因。block：检查失败时，停止接在此节点之后的所有节点（保存、upscaler 等）。"
+      },
+      "prompt": {
+        "tooltip": "把 positive 提示词接到这里，还会检查图像是否与之相符。"
+      },
+      "custom_checks": {
+        "tooltip": "你自己的检查项,每行一条,写成「是 = 好」的形式。例如 Is she wearing a parka?"
+      },
+      "max_failures": {
+        "tooltip": "允许多少次检查失败，才算失败。"
+      },
+      "video_frames": {
+        "tooltip": "对于视频：在整段片段中取多少帧来查看。"
+      }
+    }
+  },
+  "LCVisionPromptEnhancer": {
+    "description": "通过 LC Vision 模型,按预设指令改写 prompt。可选的图片让它看到你正在编辑的内容(Flux 3 edit 预设需要它们)。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "来自 LC Vision Loader 的句柄。纯文本也能正常使用，不需要任何图像相关输入。"
+      },
+      "prompt_text": {
+        "tooltip": "要改写的粗略提示词。"
+      },
+      "preset": {
+        "tooltip": "通过 lc_vision_presets.json 中的哪个 system_prompt 来改写。'Custom' 改从 custom_system_prompt 接口读取它的 system prompt（为空时回退到 'Enhance'）。编辑该文件即可添加更多预设。"
+      },
+      "custom_system_prompt": {
+        "tooltip": "仅当 preset 为 'Custom' 时使用 -- 直接读取，而不是读取 lc_vision_presets.json 中的条目。"
+      },
+      "style_tag": {
+        "tooltip": "在 preset 已有设定之上，让改写后的提示词锁定一种具体的视觉风格。'None' 不限制风格。"
+      },
+      "max_tokens": {
+        "tooltip": "长度上限。会告知模型将回答控制在此范围内（约每 token 0.55 个词），如果仍然超出，文本会被截断到最后一个完整的句子。"
+      },
+      "temperature": {
+        "tooltip": "采样随机性。0 = 确定且字面，越高 = 措辞越多样，但会牺牲一些专注度。"
+      },
+      "top_p": {
+        "tooltip": "Nucleus sampling：只从累计概率达到此值的最小 token 集合中采样。越低 = 越集中，越高 = 越多样。"
+      },
+      "repetition_penalty": {
+        "tooltip": "惩罚模型已经用过的 token，以减少重复或循环输出。1.0 = 不惩罚。"
+      },
+      "seed": {
+        "tooltip": "采样 seed。相同 seed 加相同输入应能复现相同输出，硬件/线程的不确定性除外。"
+      },
+      "image_1": {
+        "tooltip": "可选。模型在改写时看到的图片（ref_image_0）。Flux 3 edit 预设需要它：即你要编辑的图片。"
+      },
+      "image_2": {
+        "tooltip": "可选的第二张图片（ref_image_1）。"
+      }
+    }
+  },
+  "LCVisionMoviemaker": {
+    "description": "在一次 LLM 调用中把视频规划为 N 个独立生成的片段，使每个片段都是自成一体的 MiniMax H3 提示词，同时整体叙事保持连贯。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "来自 LC Vision Loader 的句柄。"
+      },
+      "story": {
+        "tooltip": "要在所有片段中规划的整体场景或故事。"
+      },
+      "preset": {
+        "tooltip": "为哪种 MiniMax H3 模式/格式编写每个 segment。'Custom' 从 custom_system_prompt 接口读取 system prompt（留空则回退到这个默认 preset）。可在 lc_vision_moviemaker_presets.json 中添加更多 preset。"
+      },
+      "length_seconds": {
+        "tooltip": "所有片段合计的计划总长度。"
+      },
+      "segments": {
+        "tooltip": "要规划的独立生成调用次数（最多 20）。输出接口会随之增加——再接一根线会自动提高此值，也可以直接设置。"
+      },
+      "custom_system_prompt": {
+        "tooltip": "仅在 preset 为 'Custom' 时使用——直接读取此处内容，而不是 lc_vision_moviemaker_presets.json 中的条目。结构性的时间/连贯/参考规则仍会叠加生效。"
+      },
+      "style_tag": {
+        "tooltip": "让每个片段都固定到特定的视觉风格。'None' 不限制风格。"
+      },
+      "reference_image_1": {
+        "tooltip": "用于 R2VA/FL2VA 预设。对模型标记为 <Reference 1>，在片段文本中写回为 <Picture 1>。"
+      },
+      "reference_image_2": {
+        "tooltip": "标记为 <Reference 2> / <Picture 2>。"
+      },
+      "reference_image_3": {
+        "tooltip": "标注为 <Reference 3> / <Picture 3>。"
+      },
+      "reference_image_4": {
+        "tooltip": "标记为 <Reference 4> / <Picture 4>。"
+      },
+      "reference_video": {
+        "tooltip": "一批帧序列，标记为 <Target Video>。用于提供运动/风格/连贯性信息，而不是被当作需要逐个描述的人物。会被降采样到 video_max_frames。"
+      },
+      "video_max_frames": {
+        "tooltip": "参考视频帧在发送前会均匀抽样到这个数量，因为发送长片段的每一帧会超出 token 预算。"
+      },
+      "max_image_side": {
+        "tooltip": "发送前把任何参考图的长边缩小到这个值。0 = 不缩放。"
+      },
+      "jpeg_quality": {
+        "tooltip": "发送给模型的参考图的 JPEG 编码质量。"
+      },
+      "end_pad_seconds": {
+        "tooltip": "LLM 一向不擅长判断经过的时间，往往会低估指定的时长。这里的值会在 length_seconds 展示给模型之前悄悄扣除（按比例分配到每个片段），这样它自身的低估就会接近你的真实目标，而不是差得很远。如果片段仍明显提前结束，就调高；0 表示禁用。"
+      },
+      "max_tokens": {
+        "tooltip": "整个回复（所有 segment 合计）生成 token 的上限——随 segment 数量一起调高。"
+      },
+      "temperature": {
+        "tooltip": "采样随机性。0 = 确定且字面，越高 = 措辞越多样，但会牺牲一些专注度。"
+      },
+      "top_p": {
+        "tooltip": "Nucleus 采样阈值。越低 = 越集中，越高 = 越多样。"
+      },
+      "repetition_penalty": {
+        "tooltip": "惩罚模型已经用过的 token。1.0 = 不惩罚。"
+      },
+      "seed": {
+        "tooltip": "采样 seed。"
+      }
+    }
+  },
+  "LCVisionDirector": {
+    "description": "把一部长的 MiniMax H3 视频规划成一串短的 CUT / CONTINUE segment，共用一个 style block。把计划保存到项目文件夹并重复使用。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "来自 LC Vision Loader 的句柄。复用已保存的计划时完全不会加载。"
+      },
+      "project": {
+        "tooltip": "项目名称。计划和每个片段都保存在 output/LC_H3/<project>/。"
+      },
+      "story": {
+        "tooltip": "完整的故事，从头到尾。说明有谁、在哪里、发生了什么。"
+      },
+      "preset": {
+        "tooltip": "规划器的写作规则。NSFW 允许成人场景。Custom 使用 custom_system_prompt。"
+      },
+      "segments": {
+        "tooltip": "片段数量。以 5 秒的片段为例，第一个为 5 秒，每次 CONTINUE 增加约 3.5 秒（重叠部分共用）：12 个片段约 44 秒，约 16 个为一分钟。"
+      },
+      "segment_seconds": {
+        "tooltip": "每个生成片段的长度。会对齐到 H3 的帧网格（5.0 = 124 帧）。越短 = 占用 VRAM 越少。"
+      },
+      "overlap_seconds": {
+        "tooltip": "CONTINUE 片段从上一个片段取多少内容开始。1.6 s(39 帧)是不错的默认值。"
+      },
+      "replan": {
+        "tooltip": "开启：总是写新计划。关闭：只要故事和时间安排不变，就复用此项目已保存的计划。"
+      },
+      "custom_system_prompt": {
+        "tooltip": "仅在 preset 为 'Custom' 时使用。"
+      },
+      "style_tag": {
+        "tooltip": "让每个 segment 都采用同一种视觉风格。"
+      },
+      "max_tokens": {
+        "tooltip": "整个计划的 token 上限。片段很多时请调高。"
+      },
+      "extend_segments": {
+        "tooltip": "台词很长的镜头会得到自己更长的片段(最长 10 s),而不是提示你缩短台词。关闭时:每个片段都是 segment_seconds 长。"
+      }
+    }
+  },
+  "LCVisionShotList": {
+    "description": "填写镜头清单（场景、角色、每个镜头一行），生成 LC Vision Showrunner 最易读懂的故事：按名字列出角色、每个新镜头用 'Cut to'、景别、运镜，以及每个镜头一句简短的话。不使用 AI。",
+    "inputs": {
+      "shot_list": {
+        "tooltip": "表单的各行，JSON 格式。在节点上填写。"
+      }
+    },
+    "outputs": {
+      "0": {
+        "tooltip": "供 LC Vision Showrunner 的 story 输入使用的故事。"
+      },
+      "1": {
+        "tooltip": "建议的片段数：每个镜头一个（较长的台词会通过 extend_segments 获得更长的片段）。接入 Showrunner 的 segments。"
+      },
+      "2": {
+        "tooltip": "shot list 中需要修正的地方。一切正常时为空。"
+      }
+    }
+  },
+  "LCVisionStoryboardBuilder": {
+    "description": "为 Showrunner 影片生成图片：找出项目缺少的内容（人脸、场景、锚点），并为每张图片生成一个提示词、latent 和 seed 供采样器使用。接入 LC Vision Storyboard Save。",
+    "inputs": {
+      "project_name": {
+        "tooltip": "项目:接入 LC Vision Showrunner 的 project_name 输出。"
+      },
+      "vae": {
+        "tooltip": "图像模型的 VAE：决定空 latent 的尺寸。"
+      },
+      "base_model": {
+        "tooltip": "图像模型，用于确定提示词的读法和它偏好的尺寸。"
+      },
+      "make": {
+        "tooltip": "missing only：只生成项目里还没有的图片。everything：全部重新生成（你自己的图片绝不会被替换）。"
+      },
+      "faces": {
+        "tooltip": "根据每个角色的外貌，生成其头肩肖像。"
+      },
+      "places": {
+        "tooltip": "Shot List 中每个场景的空镜定场图。"
+      },
+      "anchors": {
+        "tooltip": "每个有多个人物的地点的开场远景,人物各就各位:固定房间布局以及谁站在哪里。"
+      },
+      "portrait_size": {
+        "tooltip": "角色肖像的方形尺寸。"
+      },
+      "landscape_width": {
+        "tooltip": "场景图片和锚点的宽度。1344 x 768 与影片的 960 x 544 比例相匹配。"
+      },
+      "landscape_height": {
+        "tooltip": "场景图片和锚点的高度。"
+      },
+      "seed": {
+        "tooltip": "每张图的 seed 由这个值加上它的名称生成，所以重做某一张图不会影响其他图。"
+      },
+      "only": {
+        "tooltip": "可选。要(重新)生成的名称,用逗号分隔,例如:Earl, the bank lobby。留空 = 所有需要生成且开关允许的内容。"
+      },
+      "style": {
+        "tooltip": "可选。添加到每个提示词的词语（胶片风格、年代）。"
+      },
+      "style_tag": {
+        "tooltip": "每张图片的画面风格，与其他 Vision 节点使用相同的标签。from Showrunner = Showrunner 的 style_tag，使图片与影片风格一致。"
+      }
+    }
+  },
+  "LCVisionStoryboardSave": {
+    "description": "将 Storyboard Builder 的图片保存到 input/lc_h3_refs/<project>/ 并在项目中列出。Showrunner 上的 📂 Load 会把它们添加到 Reference Assembler。",
+    "inputs": {
+      "images": {
+        "tooltip": "来自采样器的图片，每个 Builder 任务一张。"
+      },
+      "job": {
+        "tooltip": "Builder 的任务输出（哪张图是哪张）。"
+      }
+    }
+  },
+  "LCVisionStoryboardSheet": {
+    "description": "节点上的分镜板：电影可用的每张图片一张卡片（脸、场景、锚点）。✅ Use 把它放入 Reference Assembler，↻ 重新生成，✎ 修改它的提示词。无需连线：它跟随 Showrunner 的项目。"
+  },
+  "LCVisionRedirect": {
+    "description": "LC Vision Showrunner 现在已自带此功能；保留此节点是为了让旧工作流能正常打开。它会查看上一个片段实际是如何结束的，并改写下一个 CONTINUE 片段的开头，使其从那里接续（如果 Showrunner 已经做过则瞬间完成）。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "来自 LC Vision Loader 的句柄。仅在某个片段确实需要重定向时才加载。"
+      },
+      "plan": {
+        "tooltip": "来自 LC Vision Showrunner 🎬。"
+      },
+      "index": {
+        "tooltip": "设置得与 LC H3 Segment 相同。0 = 尚未保存的下一个片段。"
+      },
+      "enabled": {
+        "tooltip": "关闭：计划原样直通。"
+      },
+      "temperature": {
+        "tooltip": "低值会让改写更贴近你的计划。"
+      }
+    }
+  },
+  "LCVisionDanbooruCaption": {
+    "description": "为 SDXL、Pony 和 Illustrious 生成提示词：短标题、详细标题、Danbooru 标签，或标签加一句话，来源可以是一张图像或一段粗略的提示词。长度控制在 SDXL 可用范围内，可选质量标签和匹配的负面提示词。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "来自 LC Vision Loader 的句柄。"
+      },
+      "mode": {
+        "tooltip": "Image analysis：根据图像写出提示词。Prompt enhance：改写 prompt 中写下的想法。"
+      },
+      "output": {
+        "tooltip": "short caption（最多 80 tokens）、detailed caption（150）、Danbooru tags（150）、prompt gen mixed：tags 加一句话（200）。每个 finetune 偏好不同：Pony 和 Illustrious 倾向 tags，写实 finetune 倾向 caption。"
+      },
+      "prompt": {
+        "tooltip": "Prompt enhance：要改写的粗略想法。Image analysis 中不使用。"
+      },
+      "negative": {
+        "tooltip": "你自己的负面提示词，两种模式下都会使用。它排在负面输出的最前面，后面跟自动加入的解剖 / 瑕疵 / 审查标签（已去重）。"
+      },
+      "style_tag": {
+        "tooltip": "让提示词固定为某种视觉风格。'None' 则保持图像或想法本来的样子。"
+      },
+      "quality_tags": {
+        "tooltip": "在前面加上 quality / score 标签,并把它们的反义词加到 negative。它们有时弊大于利:默认关闭。"
+      },
+      "max_tokens": {
+        "tooltip": "所有输出的提示词可以多长。指令会随之调整（约 max_tokens / 4 个 tags，caption 约每 token 0.7 个词）。大致参考：short caption 80、detailed caption 150、tags 150、mixed 200。"
+      },
+      "temperature": {
+        "tooltip": "低 = 忠实且可重复。标签类建议用低值。"
+      },
+      "image": {
+        "tooltip": "要描述的图片（Image analysis）。使用批次中的第一帧。"
+      }
+    },
+    "outputs": {
+      "0": {
+        "tooltip": "给你的 SDXL / Pony / Illustrious 文本编码器的提示词。"
+      },
+      "1": {
+        "tooltip": "匹配的 negative prompt(quality_tags 开启时带 score / quality 标签)。"
+      }
+    }
+  }
+}

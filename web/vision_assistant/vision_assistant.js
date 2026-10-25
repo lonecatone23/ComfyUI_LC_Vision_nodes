@@ -8,6 +8,7 @@ import * as check from "./va_checkup.js";
 import * as chat from "./va_chat.js";
 import { HELP_HTML, HELP_CSS } from "./va_help.js";
 import * as tour from "./va_tour.js";
+import { t, tn, lang as uiLang, ready as i18nReady } from "./va_i18n.js";
 import * as movie from "./va_movie.js";
 import * as batch from "./va_batch.js";
 import * as models from "./va_models.js";
@@ -21,6 +22,8 @@ const undo = new Map(); // workflow key -> {state, name}
 const ui = { tab: "chat", view: "list", el: null, timer: null, key: null, lib: null, save: null, place: null, menu: null, cards: null, sig: "", busy: "", tours: new Map(), tourEdit: null, chats: new Map(), draft: "", model: "", chatStatus: null, cardsOpen: null, focusInput: false };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+// the interface strings in the reader's language arrive a moment after start: draw again once they do
+setTimeout(() => i18nReady().then(() => ui.el && render()), 1500);
 const wfKey = () => {
   const w = app.extensionManager?.workflow?.activeWorkflow;
   return w?.path || w?.key || app.graph?.id || "default";
@@ -240,22 +243,25 @@ function renderSnapshots(body) {
 const lastTour = () => ui.tours.get(wfKey()) || null;
 
 function toursHtml() {
-  const t = tour.saved();
+  const tt = tour.saved();
   const fresh = lastTour();
   const menu = ui.menu === "tour";
   const locked = tour.isLocked();
-  return `<div class="va-group" style="margin-top:12px">Guided tour</div>
-    ${t ? `<div class="va-row" data-tourrow title="${locked ? "Locked. Right-click to unlock it for editing" : "Unlocked. Right-click to edit, rebuild, delete or lock it"}">
-        <div class="va-grow"><div class="va-name">${locked ? "🔒" : "🔓"} ${esc(t.title)}</div><div class="va-sub">${t.steps.length} steps, saved in this workflow${locked ? ", locked" : ", <b>unlocked</b>"}</div></div>
-        <button class="va-btn" data-tp="play" title="Play the tour">▶ Play</button>
-        ${menu ? `<div class="va-menu">${locked ? `<button data-tm="unlock">🔓 Unlock to edit</button>`
-          : `<button data-tm="edit">Edit tour…</button><button data-tm="rebuild">Build a new one (replaces this)</button><button data-tm="delete">Delete tour</button><button data-tm="lock">🔒 Lock</button>`}</div>` : ""}
+  const want = uiLang();
+  const langs = tt ? tour.languages(tt) : [];
+  const canTranslate = tt && want !== tour.sourceLang(tt) && tour.translatedCount(tt, want) < tt.steps.length;
+  return `<div class="va-group" style="margin-top:12px">${t("Guided tour")}</div>
+    ${tt ? `<div class="va-row" data-tourrow title="${locked ? t("Locked. Right-click to unlock it for editing") : t("Unlocked. Right-click to edit, rebuild, delete or lock it")}">
+        <div class="va-grow"><div class="va-name">${locked ? "🔒" : "🔓"} ${esc(tour.localize(tt, langs.includes(want) ? want : tour.sourceLang(tt)).title)}</div><div class="va-sub">${esc(tn(tt.steps.length, "1 step, saved in this workflow", "{n} steps, saved in this workflow"))}${locked ? esc(t(", locked")) : `, <b>${esc(t("unlocked"))}</b>`} · ${esc(langs.map(tour.langLabel).join(" / "))}</div></div>
+        <button class="va-btn" data-tp="play" title="${esc(t("Play the tour"))}">${esc(t("▶ Play"))}</button>
+        ${menu ? `<div class="va-menu">${canTranslate ? `<button data-tm="translate">${esc(t("🌐 Translate to {lang}", { lang: tour.langLabel(want) }))}</button>` : ""}${locked ? `<button data-tm="unlock">${esc(t("🔓 Unlock to edit"))}</button>`
+          : `<button data-tm="edit">${esc(t("Edit tour…"))}</button><button data-tm="rebuild">${esc(t("Build a new one (replaces this)"))}</button><button data-tm="delete">${esc(t("Delete tour"))}</button><button data-tm="lock">${esc(t("🔒 Lock"))}</button>`}</div>` : ""}
       </div>`
-      : fresh ? `<div class="va-row"><div class="va-grow"><div class="va-name">🧭 ${esc(fresh.title)}</div><div class="va-sub">${fresh.steps.length} steps, not saved yet</div></div>
-        <button class="va-btn" data-tp="play">▶ Play</button><button class="va-btn pri" data-tp="save" title="Saves the tour inside this workflow, so everyone who opens it gets it">Save to workflow</button></div>`
-      : `<div class="va-row"><div class="va-grow"><div class="va-sub">No tour yet. Make one by hand, no AI needed: pick what each step lights up and write the words.</div></div>
-        <button class="va-btn pri" data-tp="create" title="Opens the tour editor with an empty tour. Works on any computer.">✚ Create tour</button></div>
-        <div class="va-hint">💡 On a 20 GB+ card the chat can write a first draft: ask it "Explain this workflow" and press <b>▶ Guided tour</b>.</div>`}`;
+      : fresh ? `<div class="va-row"><div class="va-grow"><div class="va-name">🧭 ${esc(fresh.title)}</div><div class="va-sub">${esc(tn(fresh.steps.length, "1 step, not saved yet", "{n} steps, not saved yet"))}</div></div>
+        <button class="va-btn" data-tp="play">${esc(t("▶ Play"))}</button><button class="va-btn pri" data-tp="save" title="${esc(t("Saves the tour inside this workflow, so everyone who opens it gets it"))}">${esc(t("Save to workflow"))}</button></div>`
+      : `<div class="va-row"><div class="va-grow"><div class="va-sub">${esc(t("No tour yet. Make one by hand, no AI needed: pick what each step lights up and write the words."))}</div></div>
+        <button class="va-btn pri" data-tp="create" title="${esc(t("Opens the tour editor with an empty tour. Works on any computer."))}">${esc(t("✚ Create tour"))}</button></div>
+        <div class="va-hint">${esc(t("💡 On a 20 GB+ card the chat can write a first draft: ask it \"Explain this workflow\" and press ▶ Guided tour."))}</div>`}`;
 }
 
 function wireTours(body) {
@@ -269,7 +275,7 @@ function wireTours(body) {
   body.querySelectorAll("[data-tp]").forEach((b) => (b.onclick = () => {
     if (b.dataset.tp === "play") return tour.start(tour.saved() || lastTour(), 0);
     if (b.dataset.tp === "create") {
-      ui.tourEdit = { title: wfName(), steps: [], source: "hand" };
+      ui.tourEdit = { title: wfName(), steps: [], source: "hand", lang: uiLang() }; // written in the author's language
       ui.tourEditBase = "";
       ui.tourEditKey = wfKey();
       ui.view = "touredit";
@@ -278,19 +284,33 @@ function wireTours(body) {
     try {
       tour.save(lastTour());
     } catch (err) {
-      return toast("error", "Not saved", err.message);
+      return toast("error", t("Not saved"), err.message);
     }
     ui.tours.delete(wfKey());
-    toast("success", "Tour saved and locked", "Save the workflow to keep it. Right-click the tour to unlock it for editing.");
+    toast("success", t("Tour saved and locked"), t("Save the workflow to keep it. Right-click the tour to unlock it for editing."));
     render();
   }));
   body.querySelectorAll("[data-tm]").forEach((b) => (b.onclick = async (e) => {
     e.stopPropagation();
     ui.menu = null;
     const a = b.dataset.tm;
+    if (a === "translate") {
+      const code = uiLang();
+      // a small card translates on the CPU: safe, but slow. Say so first
+      const st = await api.fetchApi("/lc_vision/translate/status").then((r) => r.json()).catch(() => ({}));
+      if (st?.plan?.mode === "cpu" && !window.confirm(t("This graphics card ({gb} GB) is too small to translate on, so LC Vision translates on the CPU instead: nothing is at risk, but a tour can take 10 minutes or more. You can keep working while it runs. Start?", { gb: st.plan.vram_gb }))) return render();
+      toast("info", t("Translating the tour…"), t("LC Vision loads a model that fits your card, translates every step, then unloads it. This takes a minute or two."));
+      try {
+        const r = await tour.translate(code);
+        toast(r.warnings.length ? "warn" : "success", t("Tour translated to {lang}", { lang: tour.langLabel(code) }), [t("Save the workflow to keep it."), ...r.warnings].join("\n"));
+      } catch (err) {
+        toast("error", t("The tour wasn't translated"), err.message);
+      }
+      return render();
+    }
     if (a === "unlock" || a === "lock") {
       tour.setLocked(a === "lock");
-      toast("info", a === "lock" ? "Tour locked" : "Tour unlocked", a === "lock" ? "Nothing can change it until you unlock it." : "Edit it, then lock it again (saving an edit locks it for you).");
+      toast("info", a === "lock" ? t("Tour locked") : t("Tour unlocked"), a === "lock" ? t("Nothing can change it until you unlock it.") : t("Edit it, then lock it again (saving an edit locks it for you)."));
       return render();
     }
     if (a === "edit") {
@@ -303,16 +323,16 @@ function wireTours(body) {
     }
     if (a === "delete") {
       tour.remove(); // refuses while locked
-      toast("info", "Tour deleted");
+      toast("info", t("Tour deleted"));
       return render();
     }
     if (a === "rebuild") {
-      toast("info", "Building a new tour…", "This takes a moment.");
+      toast("info", t("Building a new tour…"), t("This takes a moment."));
       try {
         tour.save(await tour.build(chat.choice()));
-        toast("success", "New tour saved");
+        toast("success", t("New tour saved"));
       } catch (err) {
-        toast("error", "The tour didn't build", err.message);
+        toast("error", t("The tour didn't build"), err.message);
       }
       return render();
     }
@@ -320,10 +340,10 @@ function wireTours(body) {
 }
 
 const MAX_TOUR_SETTINGS = 8;
-const OPT_ROLES = [["model", "Model"], ["clip", "Text encoder"], ["vae", "VAE"]];
+const OPT_ROLES = [["model", "Model"], ["clip", "Text encoder"], ["vae", "VAE"]]; // labels go through t() where shown
 
 function renderTourEdit(body) {
-  const t = ui.tourEdit;
+  const tt = ui.tourEdit;
   const top = app.rootGraph || app.graph;
   const nodeName = (id) => {
     const n = top?.getNodeById?.(Number(id)) || top?.getNodeById?.(id);
@@ -333,28 +353,28 @@ function renderTourEdit(body) {
     const marked = new Set(st.settings.map((x) => `${x.node}|${x.widget}`));
     const opts = tour.stepChoices(st).filter((c) => !marked.has(`${c.node}|${c.widget}`));
     const groups = [...new Set(opts.map((c) => c.group))];
-    return opts.length ? `<option value="">+ Add a setting…</option>
+    return opts.length ? `<option value="">${esc(t("+ Add a setting…"))}</option>
       ${groups.map((g) => `<optgroup label="${esc(g)}">${opts.filter((c) => c.group === g)
         .map((c) => `<option value="${esc(`${c.node}|${c.widget}`)}">${esc(c.label)}</option>`).join("")}</optgroup>`).join("")}`
-      : `<option value="">+ Add a setting… (select a node on the canvas first)</option>`;
+      : `<option value="">${esc(t("+ Add a setting… (select a node on the canvas first)"))}</option>`;
   };
   const picker = (st, i) => {
-    if (st.settings.length >= MAX_TOUR_SETTINGS) return `<div class="va-sub">${MAX_TOUR_SETTINGS} settings is the most a step shows.</div>`;
+    if (st.settings.length >= MAX_TOUR_SETTINGS) return `<div class="va-sub">${esc(t("{n} settings is the most a step shows.", { n: MAX_TOUR_SETTINGS }))}</div>`;
     // always a list (re-read from the canvas selection each time it opens): a node selected after the editor was
     // drawn has to show up, also on a step that had nothing to list yet
-    const list = `<select class="va-input" data-add="${i}" title="Marks this setting with the next number on the canvas. Select a node first to mark one outside this step.">${settingOptions(st)}</select>`;
+    const list = `<select class="va-input" data-add="${i}" title="${esc(t("Marks this setting with the next number on the canvas. Select a node first to mark one outside this step."))}">${settingOptions(st)}</select>`;
     return `${list}<div style="display:flex;gap:6px;margin-top:4px">
-      <button class="va-btn" data-pick="${i}" title="Then click any setting on a node, or any part of a panel (a Proof Sheet card, an Assembler card, a Shot List box). Esc cancels.">🎯 Pick on canvas</button>
-      <input class="va-input" data-typed="${i}" style="flex:1;min-width:0" placeholder="…or type its name (on the selected node), Enter" title="A setting's name or label, or a panel part's name. Select its node on the canvas first."></div>`;
+      <button class="va-btn" data-pick="${i}" title="${esc(t("Then click any setting on a node, or any part of a panel (a Proof Sheet card, an Assembler card, a Shot List box). Esc cancels."))}">${esc(t("🎯 Pick on canvas"))}</button>
+      <input class="va-input" data-typed="${i}" style="flex:1;min-width:0" placeholder="${esc(t("…or type its name (on the selected node), Enter"))}" title="${esc(t("A setting's name or label, or a panel part's name. Select its node on the canvas first."))}"></div>`;
   };
   const groupsAll = top?._groups || [];
   const groupLabel = (g, idx) => {
     const same = groupsAll.filter((x) => x.title === g.title);
-    return same.length > 1 ? `${g.title} (${same.indexOf(g) + 1} of ${same.length})` : g.title || `Group ${idx + 1}`;
+    return same.length > 1 ? `${g.title} (${t("{i} of {n}", { i: same.indexOf(g) + 1, n: same.length })})` : g.title || t("Group {n}", { n: idx + 1 });
   };
   const targetOf = (st) => {
     const gs = (st.groups || (st.group ? [st.group] : [])).map((r) => r.title).filter(Boolean);
-    return gs.length ? gs.join(", ") : `${(st.nodes || []).length} node${(st.nodes || []).length === 1 ? "" : "s"}`;
+    return gs.length ? gs.join(", ") : tn((st.nodes || []).length, "1 node", "{n} nodes");
   };
   // read the canvas selection when it's needed, not when the editor opened: people select nodes after opening it
   // nodes inside a subgraph can't be lit by a tour: select the subgraph node itself on the top level
@@ -362,61 +382,62 @@ function renderTourEdit(body) {
     .map((id) => top.getNodeById(Number(id)) || top.getNodeById(id)).filter(Boolean));
   const targetOptions = () => {
     const n = selectedNow().length;
-    return `<option value="">Light up…</option>
-      <optgroup label="Selected on the canvas">${n ? `<option value="sel">The ${n} selected node${n === 1 ? "" : "s"}</option>`
-        : `<option value="" disabled>Select nodes on the canvas first</option>`}</optgroup>
-      <optgroup label="Groups">${groupsAll.map((g, gi) => `<option value="g|${gi}">${esc(groupLabel(g, gi))}</option>`).join("")}</optgroup>`;
+    return `<option value="">${esc(t("Light up…"))}</option>
+      <optgroup label="${esc(t("Selected on the canvas"))}">${n ? `<option value="sel">${esc(tn(n, "The selected node", "The {n} selected nodes"))}</option>`
+        : `<option value="" disabled>${esc(t("Select nodes on the canvas first"))}</option>`}</optgroup>
+      <optgroup label="${esc(t("Groups"))}">${groupsAll.map((g, gi) => `<option value="g|${gi}">${esc(groupLabel(g, gi))}</option>`).join("")}</optgroup>`;
   };
-  const btn = (attr, label, tip, off) => `<button class="va-link" ${attr} title="${tip}" ${off ? "disabled style=\"opacity:.35\"" : ""}>${label}</button>`;
+  const btn = (attr, label, tip, off) => `<button class="va-link" ${attr} title="${esc(t(tip))}" ${off ? "disabled style=\"opacity:.35\"" : ""}>${label}</button>`;
   body.innerHTML = `
-    <div style="font-size:15px;font-weight:700;color:#e77;margin:2px 0 10px">🛑🚫✋ You must hit <b>Save tour</b> when you are done editing!</div>
-    <div class="va-name" style="font-weight:600">Edit tour</div>
-    <div class="va-hint">Change the words, the steps and which settings get a numbered marker. 💡 To use nodes outside a step (or as a new step), select them on the canvas first.</div>
-    <input class="va-input" data-f="title" value="${esc(t.title)}" title="The tour's name">
-    ${t.steps.length ? "" : `<div class="va-card l1"><div class="va-name">💡 Start here</div><div class="va-hint">A step lights up one part of the workflow (a group, or nodes you select) and shows your words next to it. Add them one at a time below, or start from the suggested steps: your groups in the usual order (load image, size, model, LLM, prompt, generate, upscale and detail, post process, save), each with a starter line and its main settings marked. Change anything after.</div>
-      <div class="va-actions"><button class="va-btn" data-ns="groups">Suggested steps</button></div></div>`}
-    ${t.steps.map((st, i) => `<div class="va-group" style="display:flex;align-items:center;gap:8px">
-        <span>Step ${i + 1}</span><span class="va-sub" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(targetOf(st))}</span>
-        ${btn(`data-relight="${i}"`, "◎", "Light up the nodes selected on the canvas instead (select them first). The markers stay.")}${btn(`data-mv="${i}|-1"`, "↑", "Move up", i === 0)}${btn(`data-mv="${i}|1"`, "↓", "Move down", i === t.steps.length - 1)}${btn(`data-del="${i}"`, "×", "Remove this step")}</div>
-      <input class="va-input" data-st="${i}" data-k="title" value="${esc(st.title)}" placeholder="Step title">
-      <textarea class="va-input" data-st="${i}" data-k="text" rows="3" style="resize:vertical;font-family:inherit" placeholder="What this part does and what to change here">${esc(st.text)}</textarea>
+    <div style="font-size:15px;font-weight:700;color:#e77;margin:2px 0 10px">${esc(t("🛑🚫✋ You must hit Save tour when you are done editing!"))}</div>
+    <div class="va-name" style="font-weight:600">${esc(t("Edit tour"))}</div>
+    <div class="va-hint">${esc(t("Change the words, the steps and which settings get a numbered marker. 💡 To use nodes outside a step (or as a new step), select them on the canvas first."))}</div>
+    ${tt.lang && tt.lang !== "en" || uiLang() !== "en" ? `<div class="va-sub">${esc(t("Written in {lang}. Readers of other languages see it in {lang} until it is translated (right-click the saved tour: 🌐 Translate).", { lang: tour.langLabel(tour.sourceLang(tt)) }))}</div>` : ""}
+    <input class="va-input" data-f="title" value="${esc(tt.title)}" title="${esc(t("The tour's name"))}">
+    ${tt.steps.length ? "" : `<div class="va-card l1"><div class="va-name">${esc(t("💡 Start here"))}</div><div class="va-hint">${esc(t("A step lights up one part of the workflow (a group, or nodes you select) and shows your words next to it. Add them one at a time below, or start from the suggested steps: your groups in the usual order (load image, size, model, LLM, prompt, generate, upscale and detail, post process, save), each with a starter line and its main settings marked. Change anything after."))}</div>
+      <div class="va-actions"><button class="va-btn" data-ns="groups">${esc(t("Suggested steps"))}</button></div></div>`}
+    ${tt.steps.map((st, i) => `<div class="va-group" style="display:flex;align-items:center;gap:8px">
+        <span>${esc(t("Step {n}", { n: i + 1 }))}</span><span class="va-sub" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(targetOf(st))}</span>
+        ${btn(`data-relight="${i}"`, "◎", "Light up the nodes selected on the canvas instead (select them first). The markers stay.")}${btn(`data-mv="${i}|-1"`, "↑", "Move up", i === 0)}${btn(`data-mv="${i}|1"`, "↓", "Move down", i === tt.steps.length - 1)}${btn(`data-del="${i}"`, "×", "Remove this step")}</div>
+      <input class="va-input" data-st="${i}" data-k="title" value="${esc(st.title)}" placeholder="${esc(t("Step title"))}">
+      <textarea class="va-input" data-st="${i}" data-k="text" rows="3" style="resize:vertical;font-family:inherit" placeholder="${esc(t("What this part does and what to change here"))}">${esc(st.text)}</textarea>
       ${st.settings.map((x, k) => `<div class="va-sub" style="display:flex;gap:6px;align-items:center;margin-top:4px">
         <span style="white-space:nowrap">${k + 1}. ${esc(nodeName(x.node))} › ${esc(tour.widgetLabel(x.node, x.widget))}:</span>
-        <input class="va-input" style="flex:1;min-width:0;padding:2px 6px" data-set="${i}|${k}" value="${esc(x.why)}" placeholder="Why it matters">
-        <button class="va-link" data-rm="${i}|${k}" title="Remove this marker">×</button></div>`).join("")}
+        <input class="va-input" style="flex:1;min-width:0;padding:2px 6px" data-set="${i}|${k}" value="${esc(x.why)}" placeholder="${esc(t("Why it matters"))}">
+        <button class="va-link" data-rm="${i}|${k}" title="${esc(t("Remove this marker"))}">×</button></div>`).join("")}
       ${picker(st, i)}`).join("")}
-    <div class="va-group" style="margin-top:12px">Add a step</div>
-    <select class="va-input" data-ns="target" title="What the step lights up on the canvas">${targetOptions()}</select>
+    <div class="va-group" style="margin-top:12px">${esc(t("Add a step"))}</div>
+    <select class="va-input" data-ns="target" title="${esc(t("What the step lights up on the canvas"))}">${targetOptions()}</select>
     <div style="display:flex;gap:6px;margin-top:4px">
-      <select class="va-input" data-ns="pos" style="flex:1" title="Where it goes in the tour">
-        <option value="${t.steps.length}">at the end</option>
-        ${t.steps.map((st, i) => `<option value="${i + 1}">after step ${i + 1}: ${esc(st.title)}</option>`).join("")}
+      <select class="va-input" data-ns="pos" style="flex:1" title="${esc(t("Where it goes in the tour"))}">
+        <option value="${tt.steps.length}">${esc(t("at the end"))}</option>
+        ${tt.steps.map((st, i) => `<option value="${i + 1}">${esc(t("after step {n}:", { n: i + 1 }))} ${esc(st.title)}</option>`).join("")}
       </select>
-      <button class="va-btn" data-ns="add">+ Add step</button>
+      <button class="va-btn" data-ns="add">${esc(t("+ Add step"))}</button>
     </div>
     <div class="va-group" style="margin-top:12px">LC Model Optimizer model/clip/vae ⚙️</div>
-    <div class="va-hint">Showcase your own files: they show at the top of the LC Model Optimizer's ★ Recommended list for everyone who opens this workflow. Paste a Hugging Face file link and it downloads on their first run (any other link is shown to them to get it). Leave one blank and it uses the defaults.</div>
+    <div class="va-hint">${esc(t("Showcase your own files: they show at the top of the LC Model Optimizer's ★ Recommended list for everyone who opens this workflow. Paste a Hugging Face file link and it downloads on their first run (any other link is shown to them to get it). Leave one blank and it uses the defaults."))}</div>
     ${OPT_ROLES.map(([role, label]) => `<div style="display:flex;gap:6px;align-items:center;margin-top:4px">
-      <span class="va-sub" style="width:92px;flex:none">${label}</span>
-      <input class="va-input" style="flex:2;min-width:0" data-opt="${role}" data-k="url" value="${esc(t.optimizer?.[role]?.url || "")}" placeholder="https://huggingface.co/you/repo/blob/main/file.safetensors">
-      <input class="va-input" style="flex:1;min-width:0" data-opt="${role}" data-k="file" value="${esc(t.optimizer?.[role]?.file || "")}" placeholder="file name (optional)" title="Only needed when the link isn't a Hugging Face file link"></div>`).join("")}
-    <div class="va-actions" style="margin-top:8px"><button class="va-btn pri" data-te="save">Save tour</button><button class="va-btn" data-te="cancel">Cancel</button></div>`;
+      <span class="va-sub" style="width:92px;flex:none">${esc(t(label))}</span>
+      <input class="va-input" style="flex:2;min-width:0" data-opt="${role}" data-k="url" value="${esc(tt.optimizer?.[role]?.url || "")}" placeholder="https://huggingface.co/you/repo/blob/main/file.safetensors">
+      <input class="va-input" style="flex:1;min-width:0" data-opt="${role}" data-k="file" value="${esc(tt.optimizer?.[role]?.file || "")}" placeholder="${esc(t("file name (optional)"))}" title="${esc(t("Only needed when the link isn't a Hugging Face file link"))}"></div>`).join("")}
+    <div class="va-actions" style="margin-top:8px"><button class="va-btn pri" data-te="save">${esc(t("Save tour"))}</button><button class="va-btn" data-te="cancel">${esc(t("Cancel"))}</button></div>`;
   body.querySelectorAll("input, textarea, select").forEach((el) => (el.onkeydown = (e) => e.stopPropagation()));
   // copy what's typed into the tour before anything redraws the editor
   const collect = () => {
-    t.title = body.querySelector('[data-f="title"]').value.trim() || t.title;
-    body.querySelectorAll("[data-st]").forEach((el) => (t.steps[Number(el.dataset.st)][el.dataset.k] = el.value.trim()));
+    tt.title = body.querySelector('[data-f="title"]').value.trim() || tt.title;
+    body.querySelectorAll("[data-st]").forEach((el) => (tt.steps[Number(el.dataset.st)][el.dataset.k] = el.value.trim()));
     body.querySelectorAll("[data-set]").forEach((el) => {
       const [i, k] = el.dataset.set.split("|").map(Number);
-      if (t.steps[i]?.settings[k]) t.steps[i].settings[k].why = el.value.trim();
+      if (tt.steps[i]?.settings[k]) tt.steps[i].settings[k].why = el.value.trim();
     });
     const opt = {};
     body.querySelectorAll("[data-opt]").forEach((el) => {
       const v = el.value.trim();
       if (v) (opt[el.dataset.opt] = opt[el.dataset.opt] || {})[el.dataset.k] = v;
     });
-    if (Object.keys(opt).length) t.optimizer = opt;
-    else delete t.optimizer;
+    if (Object.keys(opt).length) tt.optimizer = opt;
+    else delete tt.optimizer;
   };
   const keepScroll = (fn) => {
     const top = body.scrollTop;
@@ -426,7 +447,7 @@ function renderTourEdit(body) {
   };
   body.querySelectorAll("[data-add]").forEach((sel) => {
     const again = () => { // the canvas selection may have changed since the editor was drawn
-      const st = t.steps[Number(sel.dataset.add)];
+      const st = tt.steps[Number(sel.dataset.add)];
       if (!st) return;
       const v = sel.value;
       sel.innerHTML = settingOptions(st);
@@ -440,21 +461,21 @@ function renderTourEdit(body) {
     const [node, widget] = sel.value.split("|");
     keepScroll(() => {
       collect();
-      t.steps[Number(sel.dataset.add)].settings.push({ node: Number(node) || node, widget, why: "" });
+      tt.steps[Number(sel.dataset.add)].settings.push({ node: Number(node) || node, widget, why: "" });
     });
-    body.querySelector(`[data-set="${sel.dataset.add}|${t.steps[Number(sel.dataset.add)].settings.length - 1}"]`)?.focus();
+    body.querySelector(`[data-set="${sel.dataset.add}|${tt.steps[Number(sel.dataset.add)].settings.length - 1}"]`)?.focus();
   }));
   // 🎯 Pick on canvas: the next click on a setting or a named panel part becomes the next marker
   const addMarker = (i, node, widget) => {
     keepScroll(() => {
       collect();
-      t.steps[i].settings.push({ node: Number(node) || node, widget, why: "" });
+      tt.steps[i].settings.push({ node: Number(node) || node, widget, why: "" });
     });
-    body.querySelector(`[data-set="${i}|${t.steps[i].settings.length - 1}"]`)?.focus();
+    body.querySelector(`[data-set="${i}|${tt.steps[i].settings.length - 1}"]`)?.focus();
   };
   body.querySelectorAll("[data-pick]").forEach((b) => (b.onclick = () => {
     const i = Number(b.dataset.pick);
-    toast("info", "Tour", "Click a setting on a node, or a part of a panel. Esc cancels.");
+    toast("info", t("Tour"), t("Click a setting on a node, or a part of a panel. Esc cancels."));
     const done = () => {
       document.removeEventListener("pointerdown", onDown, true);
       document.removeEventListener("keydown", onKey, true);
@@ -501,7 +522,7 @@ function renderTourEdit(body) {
       }
       if (!body.contains(e.target)) { // a click in the editor itself just keeps waiting
         done();
-        toast("warn", "Tour", "That has no name to mark. Type its name instead (select its node first).");
+        toast("warn", t("Tour"), t("That has no name to mark. Type its name instead (select its node first)."));
       }
     };
     document.addEventListener("pointerdown", onDown, true);
@@ -514,7 +535,7 @@ function renderTourEdit(body) {
     const i = Number(inp.dataset.typed);
     const want = inp.value.trim().toLowerCase();
     const top = app.rootGraph || app.graph;
-    const ids = [...Object.keys(app.canvas?.selected_nodes || {}), ...(t.steps[i].nodes || []).map(String)];
+    const ids = [...Object.keys(app.canvas?.selected_nodes || {}), ...(tt.steps[i].nodes || []).map(String)];
     for (const id of ids) {
       const n = top.getNodeById(Number(id)) || top.getNodeById(id);
       const w = (n?.widgets || []).find((x) => String(x.name || "").toLowerCase() === want || String(x.label || "").toLowerCase() === want);
@@ -524,28 +545,28 @@ function renderTourEdit(body) {
       if (part) return addMarker(i, n.id, `part:${part.dataset.tour}`);
     }
     if (ids.length) return addMarker(i, ids[0], `part:${inp.value.trim()}`); // kept as typed: found by name when it plays
-    toast("warn", "Tour", "Select the node it belongs to on the canvas first.");
+    toast("warn", t("Tour"), t("Select the node it belongs to on the canvas first."));
   }));
   body.querySelectorAll("[data-rm]").forEach((b) => (b.onclick = () => {
     const [i, k] = b.dataset.rm.split("|").map(Number);
     keepScroll(() => {
       collect();
-      t.steps[i].settings.splice(k, 1);
+      tt.steps[i].settings.splice(k, 1);
     });
   }));
   body.querySelectorAll("[data-mv]").forEach((b) => (b.onclick = () => {
     const [i, d] = b.dataset.mv.split("|").map(Number);
     keepScroll(() => {
       collect();
-      const [st] = t.steps.splice(i, 1);
-      t.steps.splice(i + d, 0, st);
+      const [st] = tt.steps.splice(i, 1);
+      tt.steps.splice(i + d, 0, st);
     });
   }));
   body.querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => {
-    if (t.steps.length <= 1) return toast("info", "A tour needs at least one step");
+    if (tt.steps.length <= 1) return toast("info", t("A tour needs at least one step"));
     keepScroll(() => {
       collect();
-      t.steps.splice(Number(b.dataset.del), 1);
+      tt.steps.splice(Number(b.dataset.del), 1);
     });
   }));
   const targetSel = body.querySelector('[data-ns="target"]');
@@ -558,43 +579,43 @@ function renderTourEdit(body) {
   targetSel.onfocus = refresh;
   body.querySelectorAll("[data-relight]").forEach((b) => (b.onclick = () => {
     const ns = selectedNow();
-    if (!ns.length) return toast("info", "Select nodes on the canvas first", "Then press ◎ to make this step light them up.");
+    if (!ns.length) return toast("info", t("Select nodes on the canvas first"), t("Then press ◎ to make this step light them up."));
     keepScroll(() => {
       collect();
-      const st = t.steps[Number(b.dataset.relight)];
+      const st = tt.steps[Number(b.dataset.relight)];
       st.nodes = ns.map((n) => n.id);
       st.groups = [];
       delete st.group;
     });
-    toast("success", `Step ${Number(b.dataset.relight) + 1} now lights up ${ns.length} node${ns.length === 1 ? "" : "s"}`);
+    toast("success", t("Step {i} now lights up {nodes}", { i: Number(b.dataset.relight) + 1, nodes: tn(ns.length, "1 node", "{n} nodes") }));
   }));
   const everyGroup = body.querySelector('[data-ns="groups"]');
   if (everyGroup) everyGroup.onclick = () => {
     const steps = tour.suggest();
-    if (!steps.length) return toast("info", "Nothing to suggest", "Add steps one at a time below.");
+    if (!steps.length) return toast("info", t("Nothing to suggest"), t("Add steps one at a time below."));
     keepScroll(() => {
       collect();
-      t.steps.push(...steps);
+      tt.steps.push(...steps);
     });
-    toast("success", `${steps.length} suggested steps`, "Check the words and the order, then press Save tour.");
+    toast("success", t("{n} suggested steps", { n: steps.length }), t("Check the words and the order, then press Save tour."));
   };
   body.querySelector('[data-ns="add"]').onclick = () => {
     const target = targetSel.value;
-    if (!target) return toast("info", "Pick what the step lights up", "A group, or select nodes on the canvas first.");
+    if (!target) return toast("info", t("Pick what the step lights up"), t("A group, or select nodes on the canvas first."));
     const pos = Number(body.querySelector('[data-ns="pos"]').value);
     let step;
     if (target === "sel") {
       const ns = selectedNow();
-      if (!ns.length) return toast("info", "Select nodes on the canvas first");
-      step = { title: ns.length === 1 ? core.nodeLabel(ns[0]) : "New step", text: "", nodes: ns.map((n) => n.id), settings: [] };
+      if (!ns.length) return toast("info", t("Select nodes on the canvas first"));
+      step = { title: ns.length === 1 ? core.nodeLabel(ns[0]) : t("New step"), text: "", nodes: ns.map((n) => n.id), settings: [] };
     } else {
       const gi = Number(target.split("|")[1]);
       const g = groupsAll[gi];
-      step = { title: String(g.title || "New step").replace(/^#\s*/, "").trim(), text: "", groups: [{ title: g.title, index: gi }], nodes: [], settings: [] };
+      step = { title: String(g.title || t("New step")).replace(/^#\s*/, "").trim(), text: "", groups: [{ title: g.title, index: gi }], nodes: [], settings: [] };
     }
     keepScroll(() => {
       collect();
-      t.steps.splice(pos, 0, step);
+      tt.steps.splice(pos, 0, step);
     });
     const el = body.querySelector(`[data-st="${pos}"][data-k="text"]`);
     el?.scrollIntoView({ block: "center" });
@@ -608,11 +629,11 @@ function renderTourEdit(body) {
   };
   body.querySelector('[data-te="save"]').onclick = () => {
     collect();
-    if (!t.steps.length) return toast("info", "Add at least one step first");
-    tour.save(t); // locks it again
+    if (!tt.steps.length) return toast("info", t("Add at least one step first"));
+    tour.save(tt); // locks it again
     ui.tourEdit = null;
     ui.view = "list";
-    toast("success", "Tour saved and locked", "Save the workflow to keep it.");
+    toast("success", t("Tour saved and locked"), t("Save the workflow to keep it."));
     render();
   };
 }
