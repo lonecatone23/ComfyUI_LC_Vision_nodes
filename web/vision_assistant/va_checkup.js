@@ -78,6 +78,7 @@ function allNodes() {
   const walk = (list, host, depth) => {
     for (const n of list) {
       if (host) HOST.set(n, host);
+      else HOST.delete(n); // unpacked from a subgraph since the last walk
       out.push(n);
       const inner = n.subgraph?._nodes || n.subgraph?.nodes;
       if (inner && depth < 4) walk(inner, host || n, depth + 1);
@@ -92,7 +93,11 @@ const baseLabel = (n) => (n.title && n.title !== n.type ? n.title : (n.construct
 const label = (n) => (hostOf(n) ? `${baseLabel(n)} (inside "${baseLabel(hostOf(n))}")` : baseLabel(n));
 const typeTitle = (t) => LiteGraph.registered_node_types?.[t]?.title || t;
 const base = (f) => String(f || "").split(/[\\/]/).pop();
-const active = (n) => n.mode !== 2 && n.mode !== 4;
+// a node inside a muted or bypassed subgraph doesn't run either
+const active = (n) => n.mode !== 2 && n.mode !== 4 && (!hostOf(n) || (hostOf(n).mode !== 2 && hostOf(n).mode !== 4));
+// a widget fed by a link (a subgraph input, a primitive) keeps a stale value: the run uses the link's value instead.
+// A subgraph's promoted widget is checked on the subgraph node itself, where you change it.
+const linkFed = (n, w) => !!n.inputs?.some((i) => i.link != null && (i.widget?.name === w.name || i.name === w.name));
 
 // ------------------------------------------------------------------ machine
 function gpuGen(name) {
@@ -398,7 +403,7 @@ export async function checkMissingFiles() {
     for (const w of n.widgets || []) {
       const vals = w.options?.values;
       if (w.type !== "combo" || !Array.isArray(vals) || !vals.length || !w.value || vals.includes(w.value)) continue;
-      if (typeof w.value !== "string" || !/\.\w{2,12}$/.test(w.value)) continue;
+      if (typeof w.value !== "string" || !/\.\w{2,12}$/.test(w.value) || linkFed(n, w)) continue;
       const file = base(w.value);
       const near = vals.filter((v) => typeof v === "string" && base(v).toLowerCase() === file.toLowerCase());
       if (near.length) {
