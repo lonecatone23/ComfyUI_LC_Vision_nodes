@@ -119,6 +119,8 @@ def roll_warnings(shots: list, k: int, names: list) -> list:
 
     def people(s):
         text = " ".join(str(s.get(x) or "") for x in ("action", "speaker", "after"))
+        if s.get("subject") not in names and len(names) > 1:  # "everyone" in the shot
+            return set(names)
         return {n for n in names if re.search(rf"\b{re.escape(n)}\b", text)} | ({s["subject"]} if s.get("subject") in names else set())
 
     a, b = people(prev), people(cur)

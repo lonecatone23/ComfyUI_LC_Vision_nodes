@@ -307,7 +307,15 @@ api.queuePrompt = async function (...args) {
   // awaited: with the project on a wire, save() first resolves the name (graphToPrompt), and the queue request went
   // out ahead of it, so the Storyboard Builder could read the project file from before this Run
   if (runs) await save(dir, true, true).catch(() => {});
-  return origQueue(...args);
+  const res = await origQueue(...args);
+  // replan is one shot: left on, every chained segment run wrote a new plan and set the segment just made aside,
+  // so the chain made segment 1 over and over. This run already carries replan on; the next ones reuse its plan.
+  const rw = runs && dir.widgets?.find((w) => w.name === "replan");
+  if (rw?.value === true && args[1].output[String(dir.id)].inputs?.replan === true) {
+    rw.value = false;
+    dir.setDirtyCanvas?.(true, true);
+  }
+  return res;
 };
 
 app.registerExtension({

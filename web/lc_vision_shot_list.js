@@ -169,6 +169,7 @@ function rollWarnings(shots, k, names) {
     const text = ["action", "speaker", "after"].map((x) => s[x] || "").join(" ");
     const set = new Set(names.filter((n) => new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(text)));
     if (names.includes(s.subject)) set.add(s.subject);
+    else if (names.length > 1) names.forEach((n) => set.add(n)); // "everyone" in the shot
     return set;
   };
   const a = people(prev), b = people(cur);

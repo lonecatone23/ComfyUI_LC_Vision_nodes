@@ -310,7 +310,16 @@ def _instructions(segments: int, seg_s: float, new_s: float, overlap_s: float, r
         f"from the chest up.\" or \"Camera: slow push-in on the two of them.\"). Take it from the story whenever the "
         f"story says how the shot looks. Keep it word for word the same while the shot stays the same; a CUT gets "
         f"the framing the story names; a camera move the story names goes on this line. A CONTINUE segment keeps "
-        f"the framing of the segment before it (a slow camera move is fine); only a CUT changes the shot.\n\n"
+        f"the framing of the segment before it (a slow camera move is fine); only a CUT changes the shot. "
+        f"A camera MOVE uses the renderer's own words, one move per segment: \"The camera pushes in\", \"The camera "
+        f"pulls out\", \"The camera pans left\" / \"pans right\", \"The camera tracks the subject\", \"The camera holds "
+        f"a static shot\", then \"with large amplitude at slow speed\" and where it starts and lands, for example "
+        f"\"Camera: The camera pushes in with large amplitude at slow speed from a medium shot to a close-up of her "
+        f"face.\" or \"Camera: The camera tracks the subject through the open doorway to the window table.\" "
+        f"A move without a start and an end framing, or with small amplitude, barely moves. "
+        f"Each place opens on its widest shot. A CONTINUE may push in freely, but may only pull back to a framing "
+        f"this place has already shown (the renderer only sees the last moment, so a wider view than that is made "
+        f"up); to show more of the place after a close-up, make the next segment a CUT to the place's wide shot.\n\n"
         f"Rules for every segment:\n"
         f"0) FOLLOW THE STORY'S ORDER: events happen in the order the story gives them, and a quoted "
         f"line belongs at the exact moment the story puts it. If the story runs out before the last "
@@ -364,7 +373,9 @@ def _shot_list(story: str, segments: int):
     for k, ch in enumerate(story):
         if ch in "\"“”":
             in_q = not in_q
-            if not in_q and k > 0 and story[k - 1] in ".!?":
+            # a closing quote ends the sentence even without its own full stop: 'says "yeah, me too" The camera
+            # keeps rolling' glued the next shot onto this one and the planner spread the lines over its segments
+            if not in_q and k > 0:
                 bounds.append(k + 1)
         elif ch in ".!?\n" and not in_q:
             bounds.append(k + 1)
@@ -687,7 +698,7 @@ class LCVisionDirector:
                 "segments": ("INT", {"default": 3, "min": 1, "max": MAX_SEGMENTS, "tooltip": "How many segments. With 5 s segments the first one is 5 s and each CONTINUE adds about 3.5 s (the overlap is shared): 12 segments is about 44 s, about 16 make a minute."}),
                 "segment_seconds": ("FLOAT", {"default": 5.0, "min": 2.0, "max": 20.0, "step": 0.5, "tooltip": "Length of each generated segment. Snapped to H3's frame grid (5.0 = 124 frames). Shorter = less VRAM."}),
                 "overlap_seconds": ("FLOAT", {"default": 1.6, "min": 0.2, "max": 6.0, "step": 0.1, "tooltip": "How much of the previous segment a CONTINUE segment starts from. 1.6 s (39 frames) is a good default."}),
-                "replan": ("BOOLEAN", {"default": False, "tooltip": "On: always write a new plan. Off: reuse this project's saved plan as long as the story and timing are unchanged."}),
+                "replan": ("BOOLEAN", {"default": False, "tooltip": "On: write a new plan on this Run, then it switches itself off so the rest of the segments use that plan. Off: reuse this project's saved plan as long as the story and timing are unchanged."}),
             },
             "optional": {
                 "custom_system_prompt": ("STRING", {"multiline": True, "default": "", "tooltip": "Used only when preset is 'Custom'."}),

@@ -51,7 +51,8 @@ REWRITE = (
     "instead of the window), the first beat moves the person or the camera there smoothly (a slow pan, a few "
     "steps), so the shot never jumps. If the END STATE has the main person facing away from the camera, the first "
     "beat turns them back toward the camera (or the camera moves around to their face).\n"
-    "Keep every timestamp exactly, keep the order of events, keep every quoted line word for word, keep the lines "
+    "Keep every timestamp exactly, keep the order of events, keep who does and says what (the same named person "
+    "says each line), keep every quoted line word for word, keep the lines "
     "that start with \"Place:\", \"Holding:\", \"Sound:\" or \"Camera:\" exactly as they are, and otherwise describe actions only (never appearance).\n"
     "Example. END STATE: she stands inside the cafe by the counter. PLANNED: At 1.62 seconds, she pushes open "
     "the cafe door and steps inside. At 3.00 seconds, she orders a coffee. REWRITE: At 1.62 seconds, she turns "
@@ -123,13 +124,32 @@ def _parse(text: str):
     return end, nxt
 
 
-def _problems(original: str, rewritten: str, seg_s: float) -> list:
+def _speaker(text: str, line: str, names: list) -> str:
+    """Who says the quoted line: the first cast name in its beat ("At 1.62 seconds, Nova turns toward Anika ... she
+    replies: ..." is Nova's); a beat that only says "she" belongs to the nearest beat before it with a name."""
+    q = text.find(line)
+    if q < 0 or not names:
+        return ""
+    cuts = [0] + [m.start() for m in re.finditer(r"\bAt \d+(?:\.\d+)? seconds|\n", text[:q])] + [q]
+    for a, b in reversed(list(zip(cuts, cuts[1:]))):
+        hits = [(m.start(), n) for n in names for m in re.finditer(rf"\b{re.escape(n)}\b", text[a:b])]
+        if hits:
+            return min(hits)[1]
+    return ""
+
+
+def _problems(original: str, rewritten: str, seg_s: float, names: list = ()) -> list:
     out = []
     if not rewritten:
         return ["empty rewrite"]
     for line in _QUOTE_RE.findall(original):
         if _norm(line) and _norm(line) not in _norm(rewritten):
             out.append(f'lost the line "{line.strip()}"')
+        else:
+            # the look step sees "the blonde woman", not names, so the rewrite can hand a line to the wrong person
+            a, b = _speaker(original, line, names), _speaker(rewritten, line, names)
+            if a and b and a != b:
+                out.append(f'gave {a}\'s line to {b}')
     stamps = _timestamps(rewritten)
     if not stamps:
         out.append("lost its timestamps")
@@ -230,7 +250,10 @@ class LCVisionRedirect:
         end = _ask(LOOK, content)
         rewritten = _ask(REWRITE, [{"type": "text", "text": f"END STATE: {end}\nPLANNED: {original}\nREWRITE:"}])
         rewritten = rewritten.split("REWRITE:", 1)[-1].strip()
-        problems = _problems(original, rewritten, (shot.get("frames") / 24.0) if shot.get("frames") else plan.get("segment_s", 99))
+        # the cast as the style block names them ("Anika: a woman ...; Nova: ...")
+        names = [n for n in re.findall(r"(?:^|;\s*|\n)([A-Z][\w'-]+):\s", plan.get("style", ""))
+                 if n not in ("Camera", "Visual", "Sound", "Place", "Holding", "Style", "Lighting")]
+        problems = _problems(original, rewritten, (shot.get("frames") / 24.0) if shot.get("frames") else plan.get("segment_s", 99), names)
         if problems:
             print(f"[LC Vision] Redirect: rewrite for segment {i} rejected ({'; '.join(problems)}), keeping the plan's text.")
             rewritten = original
