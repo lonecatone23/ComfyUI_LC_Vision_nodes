@@ -317,6 +317,30 @@ def _download_with_progress(url: str, dest_path: str) -> None:
     os.replace(part_path, dest_path)
 
 
+# every curated download is pinned to one commit of its repo and checked against the file's sha256 afterwards
+PINNED: dict[str, tuple[str, dict[str, str]]] = {
+    "mradermacher/Qwen3-VL-4B-Instruct-c_abliterated-v2-GGUF": ("659915fa666b816ece4e18128103dd013322be53", {
+        "Qwen3-VL-4B-Instruct-c_abliterated-v2.Q8_0.gguf": "68928bf53036bdd6b335fadcbe83e320fadbace1010466ca295475fb6cb8d992",
+        "Qwen3-VL-4B-Instruct-c_abliterated-v2.f16.gguf": "01e12fe9358176c2d0096d778c35f035fc615fbd8c284851f3148d77a3c9d39c",
+        "Qwen3-VL-4B-Instruct-c_abliterated-v2.mmproj-f16.gguf": "11ac51033acba21b650cb9724f27180a4d2abbca2784fba563e8b80f4c64ba0c",
+    }),
+    "prithivMLmods/Qwen3-VL-8B-Instruct-abliterated-v2-GGUF": ("cc4130ded656c7e6300d617bb107eed4dedac152", {
+        "Qwen3-VL-8B-Instruct-abliterated-v2.Q8_0.gguf": "9c381dacf22fe012decb14461585500e017c45b3a046943336c7923b48822a7c",
+        "Qwen3-VL-8B-Instruct-abliterated-v2.f16.gguf": "b13f3ccc42af69d3c373cfbc3c5fa26044d3c03399e9073a30d8bef82536b634",
+        "Qwen3-VL-8B-Instruct-abliterated-v2.mmproj-f16.gguf": "e360d32141265b9956edaed10d0011e02b31a7d847063beac4863a3aaf438b6d",
+    }),
+    "mradermacher/Huihui-Qwen3.5-4B-abliterated-GGUF": ("9d3aebb998fcf084086a3d1c60c31035fcfbf8e1", {
+        "Huihui-Qwen3.5-4B-abliterated.Q8_0.gguf": "1e78f9b48c8b69242fa45bbbbeb439ed818a71381a6362130d62a38561c3756d",
+        "Huihui-Qwen3.5-4B-abliterated.mmproj-f16.gguf": "f14643c11f1e8244c59bca670e2a4c843be4234aa6bb88d0647dae7297798686",
+    }),
+    "mradermacher/Huihui-Qwen3.5-9B-abliterated-GGUF": ("419ca34f424adbd9276c09e0271cb6b718e8da1d", {
+        "Huihui-Qwen3.5-9B-abliterated.Q4_K_M.gguf": "ea1858ef4dc4b648b8dbb44612962a0333e945060dd0545ac0f28d7c4416e4b3",
+        "Huihui-Qwen3.5-9B-abliterated.Q8_0.gguf": "9df7ce00f4df74344dd788ade97c412ef9850e58b44ff337e56fbf07be24a97f",
+        "Huihui-Qwen3.5-9B-abliterated.mmproj-f16.gguf": "56f07ff42fc9ab24fc06a93dce5a48fb2dbe08bff1a1c6e519d50af450820148",
+    }),
+}
+
+
 def _ensure_downloaded(repo_id: str, filename: str, target_dir: str) -> str:
     """Return the local path for repo_id/filename under target_dir,
     downloading it first if not already present. Prefers huggingface_hub
@@ -326,6 +350,7 @@ def _ensure_downloaded(repo_id: str, filename: str, target_dir: str) -> str:
     if os.path.exists(dest_path):
         return dest_path
 
+    revision, hashes = PINNED.get(repo_id, ("main", {}))
     print(f"[LC Vision] '{filename}' not found locally -- downloading from {repo_id}...")
     try:
         from huggingface_hub import hf_hub_download
@@ -334,15 +359,28 @@ def _ensure_downloaded(repo_id: str, filename: str, target_dir: str) -> str:
             repo_id=repo_id,
             filename=filename,
             local_dir=target_dir,
+            revision=revision,
         )
         if os.path.abspath(downloaded_path) != os.path.abspath(dest_path) and os.path.exists(downloaded_path):
             os.replace(downloaded_path, dest_path)
     except ImportError:
-        url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
+        url = f"https://huggingface.co/{repo_id}/resolve/{revision}/{filename}"
         _download_with_progress(url, dest_path)
 
     if not os.path.exists(dest_path):
         raise RuntimeError(f"[LC Vision] Download of '{filename}' from {repo_id} did not produce the expected file.")
+    want = hashes.get(filename)
+    if want:
+        import hashlib
+
+        h = hashlib.sha256()
+        with open(dest_path, "rb") as f:
+            for chunk in iter(lambda: f.read(16 << 20), b""):
+                h.update(chunk)
+        if h.hexdigest() != want:
+            os.remove(dest_path)
+            raise RuntimeError(f"[LC Vision] '{filename}' from {repo_id} doesn't match its known checksum, so it was deleted. "
+                               "Try the download again.")
     print(f"[LC Vision] Finished downloading '{filename}'.")
     return dest_path
 
