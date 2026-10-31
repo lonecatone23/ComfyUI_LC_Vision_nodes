@@ -217,7 +217,12 @@ export function setLocked(on) {
 /** Save a tour into the workflow (locked). Refuses to replace a locked one. */
 export function save(tour) {
   if (isLocked()) throw new Error("The saved tour is locked. Unlock it first (right-click the tour).");
-  extra().tour = { ...JSON.parse(JSON.stringify(tour)), source: "saved", saved: Date.now(), locked: true };
+  const t = JSON.parse(JSON.stringify(tour));
+  for (const s of t.steps || []) {
+    const gs = stepGroups(s);
+    if (gs.length) s.groups = gs.map((g) => ({ title: g.title, index: groupsOf().indexOf(g) }));
+  }
+  extra().tour = { ...t, source: "saved", saved: Date.now(), locked: true };
   touch();
 }
 
@@ -230,10 +235,52 @@ export function remove() {
 // ------------------------------------------------------------------ the player: a card on the canvas
 let play = null; // {tour, i, card, raf}
 
-// a step lights one or more groups (tours saved before this have a single "group")
+// a step lights one or more groups (tours saved before this have a single "group"). A group found by its title; a
+// renamed or merged one by where the step's own nodes are now. Never by its old index alone: after a layout change
+// that index is some other group, and the tour would light the wrong part.
 function stepGroups(s) {
   const refs = s.groups || (s.group ? [s.group] : []);
-  return refs.map((r) => groupsOf().find((x) => x.title === r.title) || groupsOf()[r.index]).filter(Boolean);
+  const own = (s.nodes || []).map(byId).filter(Boolean);
+  const out = refs.map((r) => groupsOf().find((x) => x.title === r.title) || (r.title ? homeOf(own) : groupsOf()[r.index]));
+  return [...new Set(out.filter(Boolean))];
+}
+
+/** The group that holds most of these nodes (a step's group that was renamed or merged), or null. */
+function homeOf(ns) {
+  let best = null, most = 0;
+  for (const g of groupsOf()) {
+    const k = ns.filter((n) => inGroup(n, g)).length;
+    if (k > most || (k === most && k && boundsOf(g)[2] * boundsOf(g)[3] < boundsOf(best)[2] * boundsOf(best)[3])) [best, most] = [g, k];
+  }
+  return best;
+}
+
+/** What a saved tour points at that the workflow no longer has: [{step, title, lines}] (empty = all good). Groups
+ * found again by their nodes still count, so the author re-saves the tour and the fix sticks. */
+export function issues(t = extra().tour) {
+  const out = [];
+  (t?.steps || []).forEach((s, k) => {
+    const lines = [];
+    const own = (s.nodes || []).map(byId).filter(Boolean);
+    for (const r of s.groups || (s.group ? [s.group] : [])) {
+      if (groupsOf().some((x) => x.title === r.title)) continue;
+      const home = r.title ? homeOf(own) : null;
+      lines.push(home ? `group "${r.title}" is gone: showing "${home.title}", where its nodes are now`
+        : `group "${r.title || r.index}" is gone`);
+    }
+    const gone = (s.nodes || []).filter((id) => !byId(id));
+    if (gone.length) lines.push(`${gone.length} node${gone.length > 1 ? "s" : ""} deleted (${gone.join(", ")})`);
+    for (const x of s.settings || []) {
+      const n = byId(String(x.node).replace(/^#/, ""));
+      const want = String(x.widget || "").toLowerCase();
+      if (!n) lines.push(`setting "${x.widget}" is on a deleted node`);
+      // panel switches ("Enable 1", ...) are built a moment after the workflow opens: not checked
+      else if (!want.startsWith("part:") && !/^enable \d+$/.test(want) && !n.widgets?.some((y) => y.name?.toLowerCase() === want || String(y.label || "").toLowerCase() === want))
+        lines.push(`${n.title || n.type} has no "${x.widget}" any more`);
+    }
+    if (lines.length) out.push({ step: k + 1, title: s.title, lines });
+  });
+  return out;
 }
 
 /** Settings an author can mark on a step: whatever is selected on the canvas first (so a node outside the step works

@@ -153,7 +153,7 @@ function render() {
   else if (ui.tab === "movie") ui.tab = "chat";
   el.innerHTML = `<div class="va">
     <div class="va-head"><img src="${LOGO_PNG}" alt=""><b>Vision Assistant</b></div>
-    <div class="va-tabs">${tabs.map(([id, label, tip]) => `<button class="va-tab${ui.tab === id ? " on" : ""}" data-tab="${id}" title="${tip}">${label}${id === "chat" && problems() ? '<span class="va-dot"></span>' : ""}${id === "snapshots" && tourUnsaved() ? '<span class="va-dot tour" title="Your guided tour is not saved yet"></span>' : ""}</button>`).join("")}<button class="va-help${ui.help ? " on" : ""}" data-help title="Help: how to use it, FAQ, tips">?</button></div>
+    <div class="va-tabs">${tabs.map(([id, label, tip]) => `<button class="va-tab${ui.tab === id ? " on" : ""}" data-tab="${id}" title="${tip}">${label}${id === "chat" && problems() ? '<span class="va-dot"></span>' : ""}${id === "snapshots" && tourUnsaved() ? '<span class="va-dot tour" title="Your guided tour is not saved yet"></span>' : id === "snapshots" && tourIssues().length ? '<span class="va-dot tour" title="Your guided tour points at something that changed"></span>' : ""}</button>`).join("")}<button class="va-help${ui.help ? " on" : ""}" data-help title="Help: how to use it, FAQ, tips">?</button></div>
     ${ui.help ? `<div class="va-helpbox"><div class="va-hhead"><span>Vision Assistant help</span><button class="va-dots" data-helpclose title="Close">✕</button></div>${HELP_HTML}</div>` : ""}
     <div class="va-body"></div></div>`;
   el.querySelectorAll(".va-tab").forEach((b) => (b.onclick = () => {
@@ -241,6 +241,24 @@ function renderSnapshots(body) {
 
 // ------------------------------------------------------------------ tours (saved in the workflow, edited by right-click only)
 const lastTour = () => ui.tours.get(wfKey()) || null;
+const tourIssues = () => {
+  try {
+    return tour.issues();
+  } catch (_) {
+    return [];
+  }
+};
+
+/** ⚠️ Cards that point at groups, nodes or settings the workflow no longer has (a layout change broke them). */
+function tourIssuesHtml() {
+  const iss = tourIssues();
+  if (!iss.length) return "";
+  const list = iss.map((x) => `${x.step}. ${x.title}\n${x.lines.map((l) => `   • ${l}`).join("\n")}`).join("\n");
+  return `<div class="va-tourwarn" style="flex-direction:column;align-items:flex-start;font-weight:400">
+    <b>⚠️ ${esc(tn(iss.length, "1 card points at something that changed", "{n} cards point at something that changed"))}</b>
+    <div class="va-hint" style="white-space:pre-line;color:inherit">${esc(list)}</div>
+    <div class="va-hint">${esc(t("Unlock, Edit tour…, check those cards and save: groups found by their nodes are written back."))}</div></div>`;
+}
 
 function toursHtml() {
   const tt = tour.saved();
@@ -256,7 +274,7 @@ function toursHtml() {
         <button class="va-btn" data-tp="play" title="${esc(t("Play the tour"))}">${esc(t("▶ Play"))}</button>
         ${menu ? `<div class="va-menu">${canTranslate ? `<button data-tm="translate">${esc(t("🌐 Translate to {lang}", { lang: tour.langLabel(want) }))}</button>` : ""}${locked ? `<button data-tm="unlock">${esc(t("🔓 Unlock to edit"))}</button>`
           : `<button data-tm="edit">${esc(t("Edit tour…"))}</button><button data-tm="rebuild">${esc(t("Build a new one (replaces this)"))}</button><button data-tm="delete">${esc(t("Delete tour"))}</button><button data-tm="lock">${esc(t("🔒 Lock"))}</button>`}</div>` : ""}
-      </div>`
+      </div>${tourIssuesHtml()}`
       : fresh ? `<div class="va-row"><div class="va-grow"><div class="va-name">🧭 ${esc(fresh.title)}</div><div class="va-sub">${esc(tn(fresh.steps.length, "1 step, not saved yet", "{n} steps, not saved yet"))}</div></div>
         <button class="va-btn" data-tp="play">${esc(t("▶ Play"))}</button><button class="va-btn pri" data-tp="save" title="${esc(t("Saves the tour inside this workflow, so everyone who opens it gets it"))}">${esc(t("Save to workflow"))}</button></div>`
       : `<div class="va-row"><div class="va-grow"><div class="va-sub">${esc(t("No tour yet. Make one by hand, no AI needed: pick what each step lights up and write the words."))}</div></div>
@@ -1468,8 +1486,15 @@ app.registerExtension({
     if (!app.extensionManager?.registerSidebarTab) return console.warn("[Vision Assistant] this ComfyUI has no sidebar tabs");
     setEnabled(app.extensionManager.setting?.get?.("LCVision.Assistant.Enabled") !== false);
     let tick = 0;
+    const tourChecked = new Set();
     setInterval(() => {
       if (!enabled || checkSwitch()) return;
+      const k = wfKey();
+      if (!tourChecked.has(k) && tour.saved()) {
+        tourChecked.add(k);
+        const n = tourIssues().length;
+        if (n) toast("warn", t("Guided tour needs a look"), tn(n, "1 card points at something that changed. See the Snapshots tab.", "{n} cards point at something that changed. See the Snapshots tab."));
+      }
       if (++tick % 3 === 0) refreshCards().catch(() => {}); // keeps the red dot current while the panel is closed
     }, 1500);
     batch.guard(() => {
