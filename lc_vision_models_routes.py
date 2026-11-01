@@ -15,7 +15,7 @@ import os
 import threading
 import time
 
-from .lc_vision_loader import CURATED_DOWNLOADS, DOWNLOAD_LABEL_PREFIX, _curated_target_dir, _discover_vision_models, _ensure_downloaded, gguf_architecture
+from .lc_vision_loader import CURATED_DOWNLOADS, DOWNLOAD_LABEL_PREFIX, _curated_target_dir, _discover_vision_models, _download_label, _ensure_downloaded, gguf_architecture
 
 _JOB = {"active": False, "label": "", "file": "", "done": 0, "total": 0, "error": "", "finished": "", "started": 0.0}
 _LOCK = threading.Lock()
@@ -46,19 +46,9 @@ def _remote_size(repo_id: str, filename: str) -> int:
 
 
 def _partial_bytes(folder: str, filename: str) -> int:
-    """Bytes of the download in progress. The fallback downloader writes <file>.part; huggingface_hub writes a
-    hash-named .incomplete under <folder>/.cache, so take the newest one started since this job began."""
+    """Bytes of the download in progress: the downloader writes <file>.part and renames it when done."""
     part = os.path.join(folder, filename + ".part")
-    if os.path.exists(part):
-        return os.path.getsize(part)
-    newest, when = None, _JOB["started"] - 5
-    for root, _dirs, files in os.walk(os.path.join(folder, ".cache", "huggingface", "download")):
-        for f in files:
-            if f.endswith(".incomplete"):
-                p = os.path.join(root, f)
-                if os.path.getmtime(p) >= when:
-                    newest, when = p, os.path.getmtime(p)
-    return os.path.getsize(newest) if newest else 0
+    return os.path.getsize(part) if os.path.exists(part) else 0
 
 
 def _run(label: str):
@@ -68,7 +58,7 @@ def _run(label: str):
         for key in ("model_file", "mmproj_file"):
             fname = entry[key]
             _JOB.update(file=fname, done=0, total=_remote_size(entry["repo_id"], fname))
-            _ensure_downloaded(entry["repo_id"], fname, folder)
+            _ensure_downloaded(entry["repo_id"], fname, folder, _download_label(label)[0])  # own progress UI: no Stop, no toast
         _JOB["finished"] = label
     except Exception as e:
         _JOB["error"] = str(e)

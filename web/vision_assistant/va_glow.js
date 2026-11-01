@@ -62,7 +62,11 @@ function hook() {
       } else {
         const w = n.widgets?.find((x) => x.name === m.widget);
         if (!w) continue;
-        box = [n.pos[0] + 6, n.pos[1] + widgetY(n, w) - 1, n.size[0] - 12, wh + 2];
+        const y = widgetY(n, w);
+        // a value the node draws itself (LC Control Panel rows, a hidden widget): no row of its own, so the whole node
+        box = w.hidden || w.type === "hidden" || y < 0 || y > n.size[1] - 4
+          ? [n.pos[0] + 2, n.pos[1] + 2, n.size[0] - 4, n.size[1] - 4]
+          : [n.pos[0] + 6, n.pos[1] + y - 1, n.size[0] - 12, wh + 2];
       }
       ctx.lineWidth = 2 / sc;
       ctx.beginPath();

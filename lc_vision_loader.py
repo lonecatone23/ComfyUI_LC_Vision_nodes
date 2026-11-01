@@ -21,7 +21,6 @@ import os
 import re
 import struct
 import sys
-import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -250,6 +249,15 @@ CURATED_DOWNLOADS: dict[str, dict[str, str]] = {
 }
 
 
+def _download_label(key: str) -> tuple[str, str]:
+    """'Qwen3-VL-8B-abliterated (Q8_0, ~9.9GB total)' -> ('Qwen3-VL-8B-abliterated (Q8_0)', '~9.9GB total')."""
+    name = key[len(DOWNLOAD_LABEL_PREFIX):] if key.startswith(DOWNLOAD_LABEL_PREFIX) else key
+    m = re.match(r"^(.*) \((.*), (~[^)]*)\)$", name)
+    if m:
+        return f"{m.group(1)} ({m.group(2)})", m.group(3)
+    return name, ""
+
+
 _THINK_BLOCK = re.compile(r"(?is)<think>.*?</think>")
 
 
@@ -282,41 +290,6 @@ def _curated_target_dir() -> str:
     return base_dir
 
 
-def _download_with_progress(url: str, dest_path: str) -> None:
-    """Resumable-ish fallback downloader (Range-header resume, no external
-    dependency) for when huggingface_hub isn't importable. Writes to a
-    .part file and renames on completion so a crash mid-download can't
-    leave a truncated file mistaken for a finished one."""
-    part_path = dest_path + ".part"
-    existing = os.path.getsize(part_path) if os.path.exists(part_path) else 0
-
-    req = urllib.request.Request(url)
-    if existing:
-        req.add_header("Range", f"bytes={existing}-")
-
-    with urllib.request.urlopen(req) as resp:
-        total = resp.length
-        total_str = f"{(existing + total) / (1024 ** 3):.2f}GB" if total else "unknown size"
-        mode = "ab" if existing and resp.status == 206 else "wb"
-        if mode == "wb":
-            existing = 0
-        downloaded = existing
-        last_pct = -1
-        with open(part_path, mode) as f:
-            while True:
-                chunk = resp.read(1024 * 1024)
-                if not chunk:
-                    break
-                f.write(chunk)
-                downloaded += len(chunk)
-                if total:
-                    pct = int(downloaded * 100 / (existing + total)) if mode == "ab" else int(downloaded * 100 / total)
-                    if pct != last_pct and pct % 5 == 0:
-                        print(f"[LC Vision] Downloading {os.path.basename(dest_path)}: {pct}% of {total_str}")
-                        last_pct = pct
-    os.replace(part_path, dest_path)
-
-
 # every curated download is pinned to one commit of its repo and checked against the file's sha256 afterwards
 PINNED: dict[str, tuple[str, dict[str, str]]] = {
     "mradermacher/Qwen3-VL-4B-Instruct-c_abliterated-v2-GGUF": ("659915fa666b816ece4e18128103dd013322be53", {
@@ -341,31 +314,20 @@ PINNED: dict[str, tuple[str, dict[str, str]]] = {
 }
 
 
-def _ensure_downloaded(repo_id: str, filename: str, target_dir: str) -> str:
-    """Return the local path for repo_id/filename under target_dir,
-    downloading it first if not already present. Prefers huggingface_hub
-    (resumable, ETag-cached) when importable; falls back to a small
-    hand-rolled resumable downloader rather than adding a hard dependency."""
+def _ensure_downloaded(repo_id: str, filename: str, target_dir: str, label: str = "", size_hint: str = "",
+                       cancel: bool = False, announce: bool = False) -> str:
+    """Return the local path for repo_id/filename under target_dir, downloading it first if not already present
+    (pinned revision, sha256 checked after). Defaults suit the settings button's own thread; a queued run passes
+    cancel=True so Stop cancels it (no half file left), and announce=True for the first-use toast."""
+    from .lc_first_download import download, hf_url
+
     dest_path = os.path.join(target_dir, filename)
     if os.path.exists(dest_path):
         return dest_path
 
     revision, hashes = PINNED.get(repo_id, ("main", {}))
     print(f"[LC Vision] '{filename}' not found locally -- downloading from {repo_id}...")
-    try:
-        from huggingface_hub import hf_hub_download
-
-        downloaded_path = hf_hub_download(
-            repo_id=repo_id,
-            filename=filename,
-            local_dir=target_dir,
-            revision=revision,
-        )
-        if os.path.abspath(downloaded_path) != os.path.abspath(dest_path) and os.path.exists(downloaded_path):
-            os.replace(downloaded_path, dest_path)
-    except ImportError:
-        url = f"https://huggingface.co/{repo_id}/resolve/{revision}/{filename}"
-        _download_with_progress(url, dest_path)
+    download(hf_url(repo_id, filename, revision), dest_path, label or filename, size_hint, cancel=cancel, announce=announce)
 
     if not os.path.exists(dest_path):
         raise RuntimeError(f"[LC Vision] Download of '{filename}' from {repo_id} did not produce the expected file.")
@@ -686,8 +648,14 @@ class LCVisionLoader:
                 model_path, mmproj_path = models[local_name]
             else:
                 target_dir = _curated_target_dir()
-                model_path = _ensure_downloaded(entry["repo_id"], entry["model_file"], target_dir)
-                mmproj_path = _ensure_downloaded(entry["repo_id"], entry["mmproj_file"], target_dir)
+                label, size_hint = _download_label(model_name)
+                if not (os.path.exists(os.path.join(target_dir, entry["model_file"]))
+                        and os.path.exists(os.path.join(target_dir, entry["mmproj_file"]))):
+                    from .lc_first_download import toast
+
+                    toast(label, size_hint)  # one toast for the model + mmproj pair
+                model_path = _ensure_downloaded(entry["repo_id"], entry["model_file"], target_dir, label, size_hint, cancel=True)
+                mmproj_path = _ensure_downloaded(entry["repo_id"], entry["mmproj_file"], target_dir, label, size_hint, cancel=True)
                 local_name = next((k for k, v in _discover_vision_models().items()
                                    if os.path.basename(v[0]) == entry["model_file"]), None)
         else:

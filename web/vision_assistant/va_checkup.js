@@ -138,7 +138,8 @@ export async function report(refresh = false) {
 }
 
 export async function runReport() {
-  const r = await api.fetchApi("/lc123/syscheck/run");
+  const r = await api.fetchApi("/lc123/syscheck/run", { method: "POST" }); // POST only since LC123 1.54.5
+  if (!r.ok) throw new Error(`System Check failed (${r.status}). Update LC123, or run the report from LC123's settings.`);
   const j = await r.json();
   if (j.error) throw new Error(j.error);
   PROFILE = j;
@@ -447,6 +448,25 @@ export async function checkMissingFiles() {
           text: `${label(n)} asks for ${file}. Its author renamed that file, and you have it as ${base(renamed[0])}. It's the same model: one click switches to it.`,
           nodeId: where(n),
           actions: renamed.slice(0, 2).map((v) => ({ label: `Use ${base(v)}`, tip: `Sets ${w.name} to ${v}`, run: { set: [n, w.name, v] } })),
+        });
+        continue;
+      }
+      // the exact same file under another name: same size and fingerprint (saved in the workflow by 📌 Save download
+      // links or a snapshot, or LC123's list of Lonecat's models). Only local files whose size fits get read.
+      const known = n.graph?.extra?.vision_assistant?.models?.[w.value]
+        || Object.values((app.rootGraph || app.graph)?.extra?.vision_assistant?.snapshots || {}).map((s) => s?.files?.[w.value]).find(Boolean) || {};
+      let same = null;
+      try {
+        const r = await api.fetchApi("/lc_vision/assistant/renamed", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: w.value, hint: folder, size: known.size || null, sha256: known.sha256 || null }) });
+        same = (await r.json()).found;
+      } catch (_) {}
+      if (same && vals.includes(same)) {
+        cards.push({
+          level: 3, title: `${file} is here under another name`,
+          text: `${label(n)} asks for ${file}. You have that exact file (same size and fingerprint) as ${base(same)}. One click uses it.`,
+          nodeId: where(n),
+          actions: [{ label: `Use ${base(same)}`, tip: `Sets ${w.name} to ${same}`, run: { set: [n, w.name, same] } }],
         });
         continue;
       }

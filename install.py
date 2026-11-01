@@ -95,7 +95,9 @@ def _already_vision_capable() -> bool:
         return False
     for handler in ("Qwen3VLChatHandler", "Qwen25VLChatHandler"):
         try:
-            cls = getattr(importlib.import_module("llama_cpp.llama_chat_format"), handler)
+            import llama_cpp.llama_chat_format as chat_format
+
+            cls = getattr(chat_format, handler)
         except Exception as exc:
             _last_import_error = f"{type(exc).__name__}: {exc}"
             continue

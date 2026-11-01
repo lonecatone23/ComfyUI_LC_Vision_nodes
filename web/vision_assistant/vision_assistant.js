@@ -932,7 +932,9 @@ async function refreshCards(force = false) {
   ui.cards = cards;
   ui.sig = sig;
   markIcon();
-  if ((changed || force) && ui.el?.isConnected && ui.view === "list" && !ui.busy && !ui.el.contains(document.activeElement)) render();
+  // hold off only while someone types in the panel: a just-clicked button (Dismiss) keeps focus too
+  const typing = ui.el?.contains(document.activeElement) && document.activeElement.matches?.("textarea, input, select, [contenteditable]");
+  if ((changed || force) && ui.el?.isConnected && ui.view === "list" && !ui.busy && !typing) render();
   else if (changed && ui.el?.isConnected) ui.el.querySelector('[data-tab="chat"]')?.replaceChildren(document.createTextNode("Chat"), ...(problems() ? [Object.assign(document.createElement("span"), { className: "va-dot" })] : []));
 }
 

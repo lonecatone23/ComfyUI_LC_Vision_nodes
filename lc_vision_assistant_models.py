@@ -123,6 +123,55 @@ def sha256(path):
     return digest
 
 
+def _shipped(name):
+    """LC123's entry for one of Lonecat's own model files (it carries the file's sha256), or None. Read through the
+    installed LC Model Optimizer, so nothing is copied here and nothing breaks without LC123."""
+    try:
+        import nodes as comfy_nodes
+        import inspect
+
+        cls = comfy_nodes.NODE_CLASS_MAPPINGS.get("LCOptimizer")
+        engine = getattr(inspect.getmodule(cls), "E", None) if cls else None
+        return engine.shipped(name) if engine else None
+    except Exception:
+        return None
+
+
+def renamed_copy(name, hint=None, size=None, digest=None):
+    """(folder, name as the folder lists it) of the same file under another name, or None. The same file = exactly the
+    same size and SHA-256. The size and hash come from the caller (the workflow's saved download links or a snapshot)
+    or LC123's list of Lonecat's models. Only local files whose size already fits are hashed; nothing goes online."""
+    digest = (digest or "").lower() or None
+    approx = None
+    if not digest:
+        entry = _shipped(name)
+        if not entry or not entry.get("sha256"):
+            return None
+        digest, approx = entry["sha256"].lower(), float(entry.get("gb") or 0)
+    if not size and not approx:
+        return None
+    want = os.path.basename(name.replace("\\", "/")).lower()
+    folders = [hint] if hint else [f for f in folder_paths.folder_names_and_paths]
+    for f in folders:
+        try:
+            names = folder_paths.get_filename_list(f)
+        except Exception:
+            continue
+        for rel in names:
+            if os.path.basename(rel.replace("\\", "/")).lower() == want:
+                continue
+            p = folder_paths.get_full_path(f, rel)
+            try:
+                n = os.path.getsize(p) if p else 0
+            except OSError:
+                continue
+            # an exact size when it is known; LC123's list only rounds to 0.01 GB (taken as GB or GiB)
+            fits = n == int(size) if size else any(abs(n / unit - approx) <= 0.02 for unit in (1e9, 2 ** 30))
+            if fits and sha256(p) == digest:
+                return f, rel
+    return None
+
+
 def _get_json(url):
     if not url.startswith("https://civitai.com/"):
         raise ValueError("only civitai.com")
@@ -182,6 +231,14 @@ try:
                     row["moved"] = _where(folder, path)  # found by name in another subfolder
             out.append(row)
         return _ok({"items": out})
+
+    @PromptServer.instance.routes.post("/lc_vision/assistant/renamed")
+    async def _renamed(request):
+        """{name, hint, size?, sha256?} -> {folder, found} when the same file is here under another name."""
+        body = await request.json()
+        hit = await asyncio.get_running_loop().run_in_executor(
+            None, renamed_copy, str(body.get("name", "")), body.get("hint"), body.get("size"), body.get("sha256"))
+        return _ok({"folder": hit[0], "found": hit[1]} if hit else {"found": None})
 
     @PromptServer.instance.routes.post("/lc_vision/assistant/model_hash")
     async def _model_hash(request):
