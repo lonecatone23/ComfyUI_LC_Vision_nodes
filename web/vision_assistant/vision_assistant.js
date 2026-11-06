@@ -1347,6 +1347,15 @@ async function cardAction(c, which, busyKey) {
     check.dismissError();
     return refreshCards(true);
   }
+  if (a.run?.hideTips) {
+    try {
+      await check.hideTips(a.run.hideTips);
+      toast("info", "Tips hidden", "Bring them back in LC Settings ⚙️ > Vision.");
+    } catch (e) {
+      toast("error", "Couldn't hide the tips", e.message);
+    }
+    return refreshCards(true);
+  }
   if (a.run === "report") {
     ui.busy = busyKey;
     render();
@@ -1479,7 +1488,7 @@ function setEnabled(on) {
   ui.el = null;
   if (usedChat) chat.unload();
 }
-window.LCVisionAssistant = { setEnabled };
+window.LCVisionAssistant = { setEnabled, refresh: () => refreshCards(true) };
 
 app.registerExtension({
   name: "LC.VisionAssistant",

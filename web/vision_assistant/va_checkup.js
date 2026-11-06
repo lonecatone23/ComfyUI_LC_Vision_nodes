@@ -205,6 +205,18 @@ export async function modelLoaders() {
   return out;
 }
 
+// System report tips the user chose to hide, by title (a ComfyUI setting, so it follows the user, not the browser)
+export const HIDDEN_TIPS = "LCVision.Assistant.HiddenTips";
+export function hiddenTips() {
+  const v = app.extensionManager?.setting?.get?.(HIDDEN_TIPS) ?? app.ui?.settings?.getSettingValue?.(HIDDEN_TIPS);
+  return Array.isArray(v) ? v : [];
+}
+export async function hideTips(titles) {
+  const next = [...new Set([...hiddenTips(), ...titles])];
+  if (app.extensionManager?.setting?.set) await app.extensionManager.setting.set(HIDDEN_TIPS, next);
+  else app.ui?.settings?.setSettingValue?.(HIDDEN_TIPS, next);
+}
+
 // ------------------------------------------------------------------ the checks
 export async function checkOptimization() {
   const cards = [];
@@ -226,14 +238,18 @@ export async function checkOptimization() {
     return cards;
   }
   const probs = (p.findings || []).filter((f) => f.level === 3);
-  const tips = (p.findings || []).filter((f) => f.level === 1);
+  // tips the user hid stay hidden (problems never do); LC Settings ⚙️ > Vision brings them back
+  const hidden = new Set(hiddenTips());
+  const tips = (p.findings || []).filter((f) => f.level === 1 && !hidden.has(f.title));
   const age = p.when ? Math.round((Date.now() - new Date(p.when.replace(" ", "T")).getTime()) / 86400000) : null;
   if (probs.length || tips.length) {
+    const actions = [{ label: "Run again", tip: "Runs LC123's system check again", run: "report" }];
+    if (tips.length) actions.push({ label: probs.length ? "Hide the tips" : "Hide these tips", tip: "Stops showing these tips. Problems still show. Bring them back in LC Settings ⚙️ > Vision.", run: { hideTips: tips.map((f) => f.title) } });
     cards.push({
       level: probs.length ? 3 : 1,
       title: `System report: ${probs.length} problem${probs.length === 1 ? "" : "s"}, ${tips.length} tip${tips.length === 1 ? "" : "s"}`,
       text: [...probs, ...tips].slice(0, 6).map((f) => `${f.level === 3 ? "⚠️" : "💡"} ${f.title}: ${f.text}`).join("\n"),
-      actions: [{ label: "Run again", tip: "Runs LC123's system check again", run: "report" }],
+      actions,
     });
   } else if (age !== null && age > 30) {
     cards.push({ level: 0, title: `Your system report is ${age} days old`, text: "Drivers and packs change. Run it again to be sure.", actions: [{ label: "Run report", run: "report" }] });
