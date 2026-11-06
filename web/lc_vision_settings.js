@@ -146,6 +146,40 @@ app.registerExtension({
       },
     },
     {
+      id: "LCVision.Assistant.HiddenSwaps",
+      category: [CAT, "Vision", "Hidden swaps"],
+      name: "Hidden swaps and note conversions",
+      defaultValue: [],
+      sortOrder: 48,
+      tooltip: "Node swaps and note conversions you hid with \"Hide unticked\" in the Vision Assistant checkup.",
+      type: (name, setter, value) => {
+        const el = document.createElement("div");
+        el.style.cssText = "display:flex;align-items:center;gap:10px;font-size:13px";
+        const draw = (list) => {
+          const n = Array.isArray(list) ? list.length : 0;
+          el.innerHTML = "";
+          const label = document.createElement("span");
+          label.textContent = n ? `${n} hidden` : "None hidden";
+          label.title = n ? list.join("\n") : "";
+          el.appendChild(label);
+          if (n) {
+            const btn = document.createElement("button");
+            btn.className = "p-button p-component p-button-sm";
+            btn.style.cssText = "padding:4px 10px";
+            btn.textContent = "Show them again";
+            btn.onclick = () => {
+              setter([]);
+              draw([]);
+              window.LCVisionAssistant?.refresh?.();
+            };
+            el.appendChild(btn);
+          }
+        };
+        draw(value);
+        return el;
+      },
+    },
+    {
       id: "LCVision.BatchSnapshot.Enabled",
       category: [CAT, "Vision", "Batch snapshot"],
       name: "Batch snapshot (check before Run)",

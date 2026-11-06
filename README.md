@@ -3,10 +3,10 @@
 Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [lonecatone23](https://github.com/lonecatone23).
 
 - **Repo:** [https://github.com/lonecatone23/ComfyUI_LC_Vision_nodes](https://github.com/lonecatone23/ComfyUI_LC_Vision_nodes)
-- **Civitai:** [lonecatone23](https://civitai.com/user/lonecatone23)
+- **CivitAI:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.4.1 · **8 Python nodes** + the **Vision Assistant** sidebar
+- **Version:** 1.6.21 · **12 nodes** + the **Vision Assistant** sidebar
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -37,6 +37,7 @@ Loads a Qwen-VL GGUF model + its mmproj vision handler once, then hands a persis
     - After the download, the node switches itself to the real file name, so the next run just works.
     - **Qwen3.5 VL** (4B Q8, 9B Q4_K_M, 9B Q8) is in the list too. Qwen3-VL stays the ★ pick: in my tests Qwen3.5 was slower and guessed more.
     - Or download from **LC Settings ⚙️ > Vision > Vision models**.
+    - Every download is pinned to one commit of its repo and checked against its sha256 before it is used.
 - **★ Report suggestion** (only with [LC123](https://github.com/lonecatone23/ComfyUI_LC123_nodes) installed and its **System & Model Optimization Report** run once):
     - A ★ in front of the model that suits your card, and a line on the node: **★ Report suggests: Qwen3-VL 8B Q8_0 · n_ctx 32768**.
     - Hover the line for the Quality / Optimal / Fast rows.
@@ -72,7 +73,9 @@ A quality gate for finished renders. Asks the vision model yes/no questions and 
 
 Text-only rewrite pass over the same model handle. A vision model is still a perfectly good text-only LLM when nothing gets attached to the message.
 
-- **Presets live in `lc_vision_presets.json`**, not code. Ships with four original presets: `Enhance`, `Refine`, `Creative Rewrite`, `Detailed Visual`.
+- **Presets live in `lc_vision_presets.json`**, not code. Ships with four original presets (`Enhance`, `Refine`, `Creative Rewrite`, `Detailed Visual`), `Character Anchor`, and four for **Flux 3 Klein**.
+- **Flux 3 presets:** `Flux 3 Text to Image`, `Flux 3 Edit`, `Flux 3 Layout (boxes)` and `Flux 3 Edit (boxes)` are Black Forest Labs' own prompt upsampler instructions, unchanged. The edit presets need the picture you edit in **image_1**.
+- **image_1 / image_2:** optional pictures the model sees while it rewrites.
 - **`Custom` preset** sits at the top of the dropdown. Reads the system prompt straight from the `custom_system_prompt` socket instead of the JSON file, for full per-workflow control. A new node starts on `Enhance`, and an empty `custom_system_prompt` falls back to `Enhance` instead of erroring.
 - **`Character Anchor` preset** for character datasets: give it the reference picture(s) and a few notes ("blonde hair, fit") and it writes one short description of the person only (face, eyes, hair, skin, build). Never the clothing, pose, background or light, so every prompt in a list can set those. Its inputs don't change between rows, so it runs once per list.
 - **`style_tag`**, same shared list as Caption.
@@ -100,7 +103,8 @@ Plans a video as N independently-generated segments in **one** LLM call, not N c
 
 - **One call, whole plan.** Story, `length_seconds`, `segments`, and preset all go in together. The model writes every segment in one response using a delimiter this node controls, so segment 2 can explicitly continue where segment 1 left off.
 - **Output sockets grow with `segments`.** Same autogrow idea as LC Batch Image. Add another wire and the count raises automatically.
-- **Presets cover 6 MiniMax H3 modes:** T2V, R2VA, FL2VA, each with an NSFW variant. 💡 **These are a first draft** written from observed conventions, not an authoritative spec. You have far more hands-on MiniMax H3 experience than any of this was written from, refine them freely.
+- **Presets cover 3 MiniMax H3 modes:** T2V, R2VA, FL2VA, each with an NSFW variant. 💡 They are a starting point. Refine them in `lc_vision_moviemaker_presets.json` or with `Custom`.
+- **`end_pad_seconds`** (0.5): LLMs undershoot a stated length, so this much is shaved off before the model sees it. Raise it if segments still stop early.
 - **`Custom` preset**, same pattern as Prompt Enhancer. The structural rules (clock, continuity, reference handling, timing) still apply underneath it, only the creative wording gets swapped.
 - **Four reference images plus one reference video.** `reference_image_1..4` write back as `<Picture N>` tied to `[Shot N]`. `reference_video` labels as `<Target Video>` and feeds motion/style continuity rather than needing the same per-reference description treatment as a still.
 - **Segments plan on their own local clock.** Early on, the model tried (and reliably failed) to track a running global timestamp across segments itself, it kept resetting to 0:00 no matter how explicitly that was spelled out. Each segment now plans on its own self-contained clock instead, the thing it's actually good at, and the real global timeline gets stitched in afterward by code. Exact every time.
@@ -110,7 +114,7 @@ Plans a video as N independently-generated segments in **one** LLM call, not N c
 
 ## LC Vision Showrunner (BETA) 🎬
 
-Moviemaker's big brother for long videos: it plans a chain of short segments that pick up from each other, made one per Run by the LC H3 Segment nodes (LC AV, coming next).
+Moviemaker's big brother for long videos: it plans a chain of short segments that pick up from each other. Its **plan** goes into **LC H3 Make** in [LC AV](https://github.com/lonecatone23/ComfyUI_LC_AV_nodes), which renders and joins them. (LC H3 Story in LC AV is the hand-written way to the same plan.)
 
 - **One style block for every segment.** Who's in it, where, the light and the camera are written once and pasted word for word into every segment, so nothing gets reworded halfway through.
 - **One continuous take.** Every segment continues from the last 1.6 s of the one before (`overlap_seconds`), so its new action is planned on the time that's left. A **CUT** only happens where your story writes one ("cut to..."). Walking into a new place happens inside the take.
@@ -136,6 +140,26 @@ The story for the Showrunner, filled in like a form instead of written from scra
 
 ---
 
+## LC Vision Storyboard (BETA) 🎞️
+
+Reference pictures for a Showrunner movie, made with an image model in a separate workflow. Nothing here is required: a movie runs without it.
+
+**LC Vision Storyboard Builder**
+- Reads the project and lists what is missing: a **face** for each cast member, a **place** picture for each place, and an **anchor** (the opening wide shot of a place with several people, holding who stands where).
+- One prompt, empty latent and seed per picture, so the sampler makes them all in one queue.
+- **base_model:** Krea 2 (Z-Image is set up for when its workflow exists).
+- **make:** **missing only**, or **everything** again. Your own pictures are never replaced.
+- **only:** names to make again, like `Earl, the bank lobby`. Each picture's seed comes from **seed** plus its name, so a redo of one keeps the others.
+- 1344 x 768 landscapes match the movie's 960 x 544 shape.
+
+**LC Vision Storyboard Save**
+- Writes the pictures to `input/lc_h3_refs/<project>/` and adds them to the project. 📂 **Load** on the Showrunner puts them in the Reference Assembler.
+
+**LC Vision Storyboard Sheet**
+- A card for every picture the movie can use, right on the node: ✅ **Use** puts it in the Reference Assembler, ↻ makes it again, ✎ changes its prompt. Nothing to wire.
+
+---
+
 ## LC Vision Redirect (BETA) 🔬
 
 The Showrunner does this itself now. Kept so older workflows still open; it passes the plan straight through when the Showrunner already fixed the join.
@@ -157,9 +181,20 @@ LC Vision is also the translator behind **LC Note 📝** (in LC123). There's no 
 
 A sidebar tab (the LC logo on the left) that reads the open workflow for you. Works on **any** workflow.
 
-- **Checkup:** runs by itself on every workflow: missing packs (one card per pack), missing models with download links (or a one-click switch when you already have the same model under another name or format, like qwen3-4B for qwen_3_4b), files in a subfolder (one-click fix), the wrong text encoder, model formats your card can't run well, placeholder files, damaged wiring (one-click repair) and your last error in plain words. No model, no VRAM.
-    - 💡 **Swap for LC nodes** comes first: nodes from other packs that have an LC twin doing the same job (rgthree Seed and KSampler Config (as LC Sampler Configure Simple), pysssss ShowText, KJNodes JoinStrings / Image Batch Multi / Get Image Size, Comfyroll and WAS text nodes, mxToolkit Slider / Seed, and its 2D slider as LC Size Pad, etc.). Tick the ones to swap: settings and wires carry over and the LC node takes its place. A node only shows when every wired socket has a match. Undo is on the Snapshots tab. Needs the LC pack that has the twin.
-    - 📝 **Convert notes to LC Notes** comes next: core **Note**, **Markdown Note** and any other note node ("note" in its name, holds text, nothing wired). Text, title, colours and place carry over; plain text keeps its line breaks and every web address becomes a real link. Rich notes from other packs keep their headings, bold, lists, tables and code, and their download buttons become LC Note download buttons with their 📂 Place in line, even when that pack isn't installed. Why: LC Notes translate, fix spelling and turn links into link cards. Undo is on the Snapshots tab. Needs LC123.
+- **Checkup:** runs by itself on every workflow. No model, no VRAM. It catches:
+    - missing packs (one card per pack) and nodes from the **wrong pack** (another pack under the same name, or an older version)
+    - missing models with download links, or a one-click switch when you already have the same model under another name or format (qwen3-4B for qwen_3_4b), or the file was renamed upstream
+    - files in a subfolder (one-click fix), placeholder files, models that need a license accepted on Hugging Face first
+    - the wrong text encoder, a VAE that doesn't fit the model, model formats your card can't run well
+    - settings that don't fit the model: steps and cfg for a turbo model or LoRA, clip skip, shift, Flux guidance, low denoise from scratch, ControlNets that never switch on, etc.
+    - damaged wiring (one-click repair) and your last error in plain words
+    - with LC123's **System & Model Optimization Report**: its problems and tips. 💡 **Hide these tips** hides the ones you don't need; problems always show.
+    - 💡 **Swap for LC nodes** comes first: nodes from other packs that have an LC twin doing the same job (rgthree, Comfyroll, Easy-Use, pysssss, KJNodes, WAS, essentials, Crystools, mxToolkit, Detail Daemon, Depth Anything V2, FL Image Adjuster, etc.). Tick the ones to swap: settings and wires carry over and the LC node takes its place.
+        - Works when that pack **isn't installed** too, so a workflow full of missing nodes can run on LC nodes instead. The missing-pack card says how many the swap can replace.
+        - A node only shows when every wired socket has a match. Settings the LC node has no home for are listed under it.
+        - **Hide unticked** stops offering the ones you want to keep.
+        - Undo is on the Snapshots tab. Needs the LC pack that has the twin.
+    - 📝 **Convert notes to LC Notes** comes next: core **Note**, **Markdown Note** and any other note node ("note" in its name, holds text, nothing wired). Text, title, colours and place carry over; plain text keeps its line breaks and every web address becomes a real link. Rich notes from other packs keep their headings, bold, lists, tables and code, and their download buttons become LC Note download buttons with their 📂 Place in line, even when that pack isn't installed. Why: LC Notes translate, fix spelling and turn links into link cards. **Hide unticked** works here too. Undo is on the Snapshots tab. Needs LC123.
 - **Chat:** ask about the workflow in plain words ("What's broken?", "Can you fix it?", "Where do I put my image?"). Select a node first and ask "how does this work?" to have it explained.
     - 🛑 It never changes anything without asking: every change gets **Yes, do it / No**, with **Undo**.
     - "Where is...?" makes the nodes glow and zooms to them.
@@ -173,7 +208,9 @@ A sidebar tab (the LC logo on the left) that reads the open workflow for you. Wo
         - **↑ ↓** move a step, **×** removes it.
         - **LC Model Optimizer model/clip/vae ⚙️**: showcase your own files. Paste a Hugging Face file link for the model, text encoder or VAE and it shows at the top of the LC Model Optimizer's ★ Recommended list for everyone who opens the workflow (it downloads on their first run). Other links are shown to them to get it. Blank = the defaults. Needs LC123.
         - **Save** locks the tour again. Save the workflow to keep it.
-- **Movie:** shows up when a workflow has the LC H3 Segment node. Every segment of the project with a thumbnail and a player, plus face, join and color checks in plain words with a fix button (**Redo segment N**, **Make all remaining**). **Ask about this movie** opens Chat with the numbers already typed in.
+    - Rename or merge a group and the tour still finds it by where its nodes are. The Snapshots tab lists any card that points at a deleted group, node or setting.
+    - The tour editor and tour card follow LC Note's language (14 languages).
+- **Movie:** shows up when a workflow has **LC H3 Make** (LC AV), or the older LC H3 Segment. It follows LC H3 Story's project or the Showrunner's. Every segment of the project with a thumbnail and a player, plus face, join and color checks in plain words with a fix button (**Redo segment N**, **Make all remaining**). **Ask about this movie** opens Chat with the numbers already typed in.
 - **Batch snapshot:** a look at the run before it starts. A single image always goes straight through. Run only stops to ask when it looks like a mistake: more than 16 images, several runs on a fixed seed, a big upscale on many images. It says which of those settings you changed since opening the workflow. The Snapshots tab shows what the next Run makes. Off in **LC Settings ⚙️ > Vision**.
 - **Snapshots and Library:** save the settings you changed (models, LoRAs, steps, bypasses) and put them back in one click. Prompts, seeds and input images stay out unless you tick them.
     - A snapshot remembers each model file's size and hash. Applying it later warns when a file has the same name but is not the same model any more.
@@ -182,7 +219,7 @@ A sidebar tab (the LC logo on the left) that reads the open workflow for you. Wo
     - **📌 Save download links** keeps the exact pages in the workflow, so whoever opens it can download anything they are missing.
     - CivitAI is only contacted when you press a button, and it only gets the hash, never the file.
 - **VRAM:** none until you ask the chat something. **Auto** picks the model for your card (8B Q8 on 20 GB+, down to 4B Q4 on 8 GB, CPU chat on smaller cards) and unloads it a minute after the last answer, or the moment you hit Run.
-- **Settings:** **LC Settings ⚙️ > Vision** (works without LC123): Assistant on/off, chat model (Auto / Off / a model), default n_ctx for new Loaders, and the model list with a Download button.
+- **Settings:** **LC Settings ⚙️ > Vision** (works without LC123): Assistant on/off, chat model (Auto / Off / a model), batch snapshot on/off, default n_ctx for new Loaders, the model list with a Download button, and **Show them again** for hidden tips and hidden swaps.
 - 💡 Hit **?** in the panel for the full help.
 
 ---
@@ -202,7 +239,7 @@ In `workflows/`:
 
 ## Licensing note
 
-`ComfyUI-QwenVL-Mod` (GPL-3.0) has a genuinely good 22-preset library for its Prompt Enhancer. That's real creative content, not mechanical plumbing, so none of it is ported here. Prompt Enhancer ships with a small set of original presets instead.
+`ComfyUI-QwenVL-Mod` (GPL-3.0) has a genuinely good 22-preset library for its Prompt Enhancer. That's real creative content, not mechanical plumbing, so none of it is ported here. Prompt Enhancer ships with its own original presets instead. The four `Flux 3` presets are Black Forest Labs' prompt upsampler instructions from `black-forest-labs/flux-3-image-klein-pup` (Apache-2.0), unchanged.
 
 The GGUF-header reader in `lc_vision_loader.py` is the one piece that resembles upstream code in shape. It isn't ported, it's an independent implementation against the [public GGUF spec](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md), about as mechanical as code gets.
 
@@ -210,15 +247,15 @@ The GGUF-header reader in `lc_vision_loader.py` is the one piece that resembles 
 
 ## Install
 
-1. **Get the files.** Clone it into `ComfyUI/custom_nodes/`:
+- **Get the files.** Clone it into `ComfyUI/custom_nodes/`:
    ```bash
    git clone https://github.com/lonecatone23/ComfyUI_LC_Vision_nodes.git
    ```
    Or grab the zip from the repo page and unzip it there instead.
-2. **Check the folder.** `__init__.py` needs to sit directly in `ComfyUI/custom_nodes/ComfyUI_LC_Vision_nodes/`, not nested a level down.
-3. **Run `install.py`** (ComfyUI-Manager does this automatically on install/update). It checks for a vision-capable `llama_cpp` first and does nothing if you already have one. Otherwise it detects your Python, platform, and CUDA version, and installs the matching wheel from `JamePeng/llama-cpp-python` directly.
-4. **Restart ComfyUI.** The console should print the LC Vision load line (4 nodes). If it doesn't, the folder structure is off, go back to step 2.
-5. 💡 Hard-refresh your browser after any `web/` JS update going forward. It won't pick up changes on its own.
+- **Check the folder.** `__init__.py` needs to sit directly in `ComfyUI/custom_nodes/ComfyUI_LC_Vision_nodes/`, not nested a level down.
+- **Run `install.py`** (ComfyUI-Manager does this automatically on install/update). It checks for a vision-capable `llama_cpp` first and does nothing if you already have one. Otherwise it detects your Python, platform, and CUDA version, and installs the matching `llama-cpp-python` 0.3.49 wheel from `JamePeng/llama-cpp-python` releases, checked against its sha256 first.
+- **Restart ComfyUI.** The console should print the LC Vision load line (12 nodes). If it doesn't, the folder structure is off: check the folder again.
+- 💡 Hard-refresh your browser after any `web/` JS update going forward. It won't pick up changes on its own.
 
 ### AMD, Intel and other non-NVIDIA GPUs
 - ⚠️ The prebuilt `JamePeng/llama-cpp-python` wheels are **CUDA-only** (plus Metal on macOS). Without an NVIDIA CUDA runtime they cannot be imported, so `install.py` stops there and changes nothing instead of installing a wheel that can't load.
@@ -244,5 +281,4 @@ $env:CMAKE_ARGS = "-DGGML_VULKAN=on"
 
 MIT. See `LICENSE`.
 
-**"True, nothing is. Permitted, everything is"**
-_Yoda Auditore. *Assassin's Wars*_
+"True Nothing is. Permitted Everything is"- Yoda Auditore, Assassin's Wars

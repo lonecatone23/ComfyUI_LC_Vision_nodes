@@ -1014,7 +1014,7 @@ function renderChat(body) {
       ${c.swap ? `<div style="margin:6px 0">${c.swap.map((x) => `<label style="display:flex;gap:6px;align-items:flex-start;margin:3px 0;cursor:pointer"><input type="checkbox" data-sw="${esc(x.key || x.from)}" checked style="margin-top:3px">
         <span><b>${esc(x.from)}</b> → ${esc(x.to)}${x.count > 1 ? ` ×${x.count}` : ""}${x.drops.length ? `<br><span class="va-sub">drops: ${esc(x.drops.join(", "))} (no LC equivalent)</span>` : ""}${x.blocked ? `<br><span class="va-sub">${x.blocked} more can't swap: ${esc(x.why || "a wired socket has no match")}</span>` : ""}</span></label>`).join("")}</div>` : ""}
       <div class="va-actions">${c.nodeId != null && check.nodeById(c.nodeId) ? `<button class="va-btn" data-a="show" title="Jump to the node">Show node</button>` : ""}
-        ${(c.actions || []).map((a, j) => `<button class="va-btn${a.run && a.run !== "dismiss" ? " pri" : ""}" data-a="${j}" title="${esc(a.tip || "")}">${ui.busy === `${i}:${j}` ? "Working…" : esc(a.label)}${a.href ? " ↗" : ""}</button>`).join("")}</div>
+        ${(c.actions || []).map((a, j) => `<button class="va-btn${a.run && a.run !== "dismiss" && !a.run.hideSwaps && !a.run.hideTips ? " pri" : ""}" data-a="${j}" title="${esc(a.tip || "")}">${ui.busy === `${i}:${j}` ? "Working…" : esc(a.label)}${a.href ? " ↗" : ""}</button>`).join("")}</div>
     </div>`).join("") : `<div class="va-hint">✅ Nothing wrong that I can see: every node is installed, every file is here, and the text encoder matches the model.</div>`) : ""}
     <div data-models></div>
     <div class="va-chat">
@@ -1374,6 +1374,17 @@ async function cardAction(c, which, busyKey) {
     if (!ok) return toast("error", "Couldn't change it", "The node or setting is gone. Check again.");
     undo.set(wfKey(), { state: before, name: c.title });
     toast("success", "Changed", `${c.title}: done. Undo is on the Snapshots tab.`);
+    return refreshCards(true);
+  }
+  if (a.run?.hideSwaps) {
+    const types = [...(ui.el?.querySelectorAll(`.va-card[data-k="${busyKey.split(":")[0]}"] [data-sw]`) || [])].filter((x) => !x.checked).map((x) => x.dataset.sw);
+    if (!types.length) return toast("info", "Nothing unticked", "Untick the ones you don't want offered, then hide them.");
+    try {
+      await check.hideSwaps(types);
+      toast("info", `Hidden: ${types.length}`, "Bring them back in LC Settings ⚙️ > Vision > Hidden swaps.");
+    } catch (e) {
+      toast("error", "Couldn't hide them", e.message);
+    }
     return refreshCards(true);
   }
   if (a.run?.swap) {

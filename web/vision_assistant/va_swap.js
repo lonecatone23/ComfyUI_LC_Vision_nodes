@@ -3,6 +3,7 @@
 // name, and the new node takes the old one's place. A node is only offered when every wired socket has a home on
 // the LC node. Idea from AusBoss's "Replace with AusBoss nodes" (ComfyUI-AusBoss, MIT); written from scratch.
 import { app } from "../../../scripts/app.js";
+import { WIDGET_ORDER } from "./va_swap_widgets.js";
 
 // the LC Vision Loader a QwenVL swap adds in front of the LC node: same GGUF model when LC sees it
 const VISION_LOADER = {
@@ -16,20 +17,39 @@ const VISION_LOADER = {
 
 // from: other pack's node type. to: LC node type. names: old socket/setting name -> LC name (both inputs and
 // outputs; unlisted names stay the same). set(old, values): extra LC settings worked out from the old node.
+// Every entry also needs its setting names in va_swap_widgets.js, or it can't be swapped when its pack is missing.
 export const SWAPS = [
   // -1 is "random every run" in both; rgthree's -2 / -3 (increment / decrement) have no LC twin, so they become random too
   { from: "Seed (rgthree)", to: "LCSeed", names: { seed: "base_seed", SEED: "seed" }, set: (old) => (Number(old.widgets?.find((w) => w.name === "seed")?.value) < 0 ? { base_seed: -1 } : {}) },
-  { from: "CR Seed", to: "LCSeed", names: { seed: "base_seed" } },
+  // CR Seed and easy seed name both the widget and the output "seed": copy the widget in set() so the output keeps its name
+  { from: "CR Seed", to: "LCSeed", names: {}, drop: ["seed"], set: (old) => ({ base_seed: Number(old.widgets?.find((w) => w.name === "seed")?.value) || 0 }) },
   // the second step count (rgthree's refiner_step) becomes LC's detailer_steps; denoise stays at its default 1
   {
     from: "KSampler Config (rgthree)", to: "LCSamplerConfigureSimple",
     names: { steps_total: "total_steps", refiner_step: "detailer_steps", STEPS: "total_steps", REFINER_STEP: "detailer_steps", CFG: "cfg",
              SAMPLER: "sampler_name", SCHEDULER: "scheduler" },
   },
-  { from: "easy seed", to: "LCSeed", names: { seed: "base_seed" } },
+  { from: "easy seed", to: "LCSeed", names: {}, drop: ["seed"], set: (old) => ({ base_seed: Number(old.widgets?.find((w) => w.name === "seed")?.value) || 0 }) },
   { from: "Display Any (rgthree)", to: "LCShowAny", names: { source: "any" } },
   { from: "easy showAnything", to: "LCShowAny", names: { anything: "any" } },
   { from: "ShowText|pysssss", to: "LCShowText", names: { STRING: "text" } },
+  // same modes, volume and sound list (LC ships pysssss's notify.mp3); a custom sound file LC doesn't have keeps LC's default
+  { from: "PlaySound|pysssss", to: "LCNotify", names: { "*": "any" } },
+  // one strength per LC row: only offered when the model and clip strengths match (or nothing is wired to clip)
+  {
+    from: "LoraLoader|pysssss", to: "LCLoraLoader", names: { MODEL: "model", CLIP: "clip" }, drop: ["lora_name", "strength_model", "strength_clip", "prompt"],
+    when: (old) => {
+      const val = (n) => Number(old.widgets?.find((w) => w.name === n)?.value ?? 1);
+      return old.inputs?.find((i) => i.name === "clip")?.link == null || val("strength_model") === val("strength_clip");
+    },
+    whyNot: "its model and clip strengths differ, and an LC LoRA row has one strength",
+    set: (old) => {
+      const val = (n) => old.widgets?.find((w) => w.name === n)?.value;
+      const lora = val("lora_name");
+      return { lora_rows: JSON.stringify(typeof lora === "string" && lora && lora !== "None" ? [{ on: true, lora, strength: Number(val("strength_model") ?? 1) }] : []) };
+    },
+    after: (fresh) => fresh.onConfigure?.({}),
+  },
   { from: "Image Comparer (rgthree)", to: "LCBatchImageComparer", names: {} },
   { from: "JoinStrings", to: "LCJoinStrings", names: { string1: "string_1", string2: "string_2", STRING: "string" }, set: () => ({ inputcount: 2 }) },
   { from: "JoinStringMulti", to: "LCJoinStrings", names: {}, drop: ["return_list"] },
@@ -131,7 +151,186 @@ export const SWAPS = [
     // their preset is a canned task; an empty prompt there means "use the preset", so give LC a plain description request
     set: (old) => ({ prompt: String(old.widgets?.find((w) => w.name === "prompt")?.value || "").trim() || "Describe this image in detail." }),
   })),
+
+  // Mira (mirabarukaso, MIT). Its seed widget and output are both "seed": copy the widget in set() so the output keeps its name
+  { from: "SeedGeneratorMira", to: "LCSeed", names: {}, drop: ["seed"], set: (old) => ({ base_seed: Number(old.widgets?.find((w) => w.name === "seed")?.value) || 0 }) },
+  { from: "TextBoxMira", to: "LCPositive", names: { text: "positive" } },
+  // Mira joins with no separator
+  { from: "TextCombinerTwo", to: "LCJoinStrings", names: { text1: "string_1", text2: "string_2", text: "string" }, set: () => ({ inputcount: 2, delimiter: "" }) },
+  {
+    from: "TextCombinerSix", to: "LCJoinStrings",
+    names: { ...Object.fromEntries([1, 2, 3, 4, 5, 6].map((i) => [`text${i}`, `string_${i}`])), text: "string" },
+    set: () => ({ inputcount: 6, delimiter: "" }),
+  },
+  // its "result" STRING output has no home, so it is only offered when that output is unwired
+  { from: "LogicNot", to: "LCBooleanFlip", names: { bool: "boolean", not_bool: "boolean" } },
+  { from: "SingleBooleanTrigger", to: "LCBooleanValue", names: { bool: "BOOLEAN" }, drop: ["bool"], set: (old) => ({ value: !!old.widgets?.find((w) => w.name === "bool")?.value }) },
+  {
+    from: "OneFloat", to: "LCSlider", names: { float_1: "*" }, drop: ["float_1"],
+    set: (old) => {
+      const v = Number(old.widgets?.find((w) => w.name === "float_1")?.value ?? 1);
+      return { value: v, min: Math.min(0, Math.floor(v)), max: Math.max(1, Math.ceil(Math.abs(v) * 2)), step: 0.01, decimals: 2 };
+    },
+  },
+  { from: "StepsAndCfg", to: "LCSamplerConfigureSimple", names: { steps: "total_steps", STEPS: "total_steps", CFG: "cfg" } },
+  // Mira canvas -> LC Size Pad Custom; Landscape swaps W/H. Advanced's Batch / HiRes outputs have no home (offered only when unwired)
+  ...["CanvasCreatorBasic", "CanvasCreatorSimple", "CanvasCreatorAdvanced"].map((from) => ({
+    from, to: "LCSizePad", names: { Width: "width", Height: "height" }, drop: ["Width", "Height", "Landscape", "Batch", "HiResMultiplier"],
+    set: (old) => {
+      const val = (n) => old.widgets?.find((w) => w.name === n)?.value;
+      let w = Math.max(16, Math.round(Number(val("Width")) || 576)), h = Math.max(16, Math.round(Number(val("Height")) || 1024));
+      if (val("Landscape") === true) [w, h] = [h, w];
+      return { model: "Custom", aspect: "free", width: w, height: h, megapixels: Math.round((w * h) / 1e4) / 100 };
+    },
+  })),
+  // torchvision grayscale = Rec.601 (Mira's own node only does frame 0 and outputs 1 channel, so this also fixes it)
+  { from: "ImageGrayscale", to: "LCImageDesaturate", names: { src_image: "image" }, set: () => ({ factor: 1, method: "luminance (Rec.601)" }) },
+  // both rotate HSV hue: Mira's level is in turns (-0.5..0.5), LC hue -1..1 = ±180°
+  {
+    from: "ImageHUE", to: "LCImageAdjust", names: { src_image: "image" }, drop: ["level"],
+    set: (old) => ({ hue: 2 * (Number(old.widgets?.find((w) => w.name === "level")?.value) || 0), saturation: 0, brightness: 0, contrast: 0, sharpness: 0 }),
+  },
+
+  // PDuse (7BEII, MIT)
+  { from: "PD_ShowText", to: "LCShowText", names: { STRING: "text" } },
+  { from: "PDStringInput", to: "LCPositive", names: { value: "positive", string: "positive" } },
+  { from: "PDStringConcate", to: "LCJoinStrings", names: { string1: "string_1", string2: "string_2", joined_string: "string" }, set: () => ({ inputcount: 2 }) },
+  { from: "PD_JoinStringMultiLine", to: "LCJoinStrings", names: { combined_string: "string" }, set: () => ({ inputcount: 2, delimiter: "\\n" }) },
+  { from: "PD_GetImageSize", to: "LCGetImage", names: {} },
+  // its name / strength STRING outputs have no home, so a node using them stays put
+  {
+    from: "PD_lora_loader", to: "LCLoraLoaderSingle", names: { MODEL: "model" }, drop: ["lora_name", "strength_model"],
+    set: (old) => {
+      const val = (n) => old.widgets?.find((w) => w.name === n)?.value;
+      const lora = val("lora_name");
+      return { lora_rows: JSON.stringify(typeof lora === "string" && lora && lora !== "None" ? [{ on: true, lora, strength: Number(val("strength_model") ?? 1) }] : []) };
+    },
+    after: (fresh) => fresh.onConfigure?.({}),
+  },
+  // PD's own node can't run (FUNCTION name mismatch), so the swap also makes old workflows work
+  {
+    from: "PDIMAGE_ImageCombine", to: "LCImageStitchMulti", names: { image1: "image_01", image2: "image_02", IMAGE: "image" }, drop: ["match_image_size"],
+    set: (old) => ({ match_size: old.widgets?.find((w) => w.name === "match_image_size")?.value === false ? "off" : "match first" }),
+  },
+
+  // PlagueKind (MIT). Visual Crop: 0-1 fractions -> LC's 0-100 percent; only the image output has a home
+  {
+    from: "VisualBBoxCrop", to: "LCImageCrop", names: {}, drop: ["custom_ratio_w", "custom_ratio_h", "show_crop_values"],
+    set: (old) => {
+      const val = (n, fb) => { const v = Number(old.widgets?.find((w) => w.name === n)?.value); return Number.isFinite(v) ? v : fb; };
+      const pct = (v, lo) => Math.round(Math.min(100, Math.max(lo, v * 100)) * 10) / 10;
+      const ar = String(old.widgets?.find((w) => w.name === "aspect_ratio")?.value || "Free");
+      const aspect = ["1:1", "4:3", "3:2", "16:9", "3:4", "2:3", "9:16"].includes(ar) ? ar : "free";
+      return { x: pct(val("crop_x", 0), 0), y: pct(val("crop_y", 0), 0), width: pct(val("crop_w", 1), 0.5), height: pct(val("crop_h", 1), 0.5), aspect };
+    },
+  },
+  // LoRA stack (LTX / MiniMax H3): exact in normal mode, or when every used row's video / audio / text multiplier is 1
+  {
+    from: "LTX_lora_loader", to: "LCLoraLoader", names: {}, drop: ["mode", "stack_data"],
+    when: (old) => {
+      const mode = old.widgets?.find((w) => w.name === "mode")?.value || "normal";
+      return mode === "normal" || pkRows(old).every((r) => !r.on || [r.v, r.a, r.t].every((m) => Number(m ?? 1) === 1));
+    },
+    whyNot: "it uses separate video / audio / text strengths, which LC LoRA Loader doesn't have",
+    set: (old) => ({ lora_rows: JSON.stringify(pkRows(old).filter((r) => typeof r.lora === "string" && r.lora && r.lora !== "None")
+      .map((r) => ({ on: r.on !== false, lora: r.lora, strength: Number(r.str ?? 1) }))) }),
+    after: (fresh) => fresh.onConfigure?.({}),
+  },
+
+  // ---- installed-pack sweep 2026-11-06 ----
+  // rgthree / demonalone / vsLinx / CR switches. Any Switch: first connected input wins, as LC AnySwitch
+  { from: "Any Switch (rgthree)", to: "LCAnySwitch", names: {}, set: (old) => ({ inputcount: Math.min(20, Math.max(2, ...(old.inputs || []).map((i) => (i.link != null ? Number(/^any_(\d+)$/.exec(i.name)?.[1]) || 0 : 0)))) }) },
+  { from: "BooleanSwitchNode", to: "LCBooleanSwitch", names: {} },
+  { from: "vsLinx_BooleanFlip", to: "LCBooleanFlip", names: {} },
+  {
+    from: "CR Image Input Switch", to: "LCIndexSwitch", names: { image1: "any_01", image2: "any_02", IMAGE: "*" }, drop: ["Input"],
+    set: (old) => ({ inputcount: 2, index: Math.min(1, Math.max(0, (Number(old.widgets?.find((w) => w.name === "Input")?.value) || 1) - 1)) }),
+  },
+  { from: "mxStop", to: "LCStop", names: {}, outAt: ["Out"], missingOk: true, set: () => ({ enable: true }) },
+  // text boxes -> Prompt
+  { from: "DF_Text", to: "LCPositive", names: { Text: "positive", STRING: "positive" } },
+  { from: "String", to: "LCPositive", names: { String: "positive", STRING: "positive" } },
+  { from: "StringConstant", to: "LCPositive", names: { string: "positive", STRING: "positive" } },
+  // single numbers -> LC Slider (ComfyLiterals keep the number as text)
+  ...[["Float", "Number", "FLOAT", 2], ["Int", "Number", "INT", 0], ["FloatConstant", "value", "value", 2], ["INTConstant", "value", "value", 0], ["Cfg Literal", "float", "FLOAT", 2]]
+    .map(([from, widget, out, dec]) => ({ from, to: "LCSlider", names: { [out]: "*" }, drop: [widget], set: (old) => sliderFor(old.widgets?.find((w) => w.name === widget)?.value, dec) })),
+  { from: "Seed Generator (Image Saver)", to: "LCSeed", names: { INT: "seed" }, drop: ["seed", "increment"],
+    when: (old) => !Number(old.widgets?.find((w) => w.name === "increment")?.value),
+    whyNot: "it adds an increment to the seed, which LC Seed doesn't",
+    set: (old) => ({ base_seed: Number(old.widgets?.find((w) => w.name === "seed")?.value) || 0 }) },
+  { from: "Sampler Selector", to: "LCSamplerScheduler", names: {} },
+  { from: "Scheduler Selector", to: "LCSamplerScheduler", names: {} },
+  // image info
+  { from: "Get resolution [Crystools]", to: "LCGetImage", names: {} },
+  { from: "GetImageSize+", to: "LCGetImage", names: { count: "batch" } },
+  { from: "WidgetToString", to: "LCWidgetToString", names: {} },
+  // text tools
+  { from: "RemoveDuplicateTags|LP", to: "LCDuplicateTags", names: { "tags TEXT": "text" }, set: () => ({ keep: "first" }) },
+  {
+    from: "CR Text Replace", to: "LCTextReplace", names: { find1: "find_1", replace1: "replace_1", find2: "find_2", replace2: "replace_2", find3: "find_3", replace3: "replace_3", STRING: "text" },
+    set: (old) => ({ entrycount: Math.max(1, ...[1, 2, 3].filter((i) => String(old.widgets?.find((w) => w.name === `find${i}`)?.value ?? "") !== "")) }),
+  },
+  // image adjustments. LC Image Adjust uses FL's math on a -1..1 scale (FL's hue steps are 1/256 of a turn)
+  {
+    from: "FL_ImageAdjuster", to: "LCImageAdjust", names: { IMAGE: "image" }, drop: ["hue", "saturation", "brightness", "contrast", "sharpness"],
+    set: (old) => {
+      const v = (n) => Number(old.widgets?.find((w) => w.name === n)?.value) || 0;
+      const c = (x) => Math.max(-1, Math.min(1, x));
+      return { hue: c(v("hue") / 128), saturation: c(v("saturation") / 100), brightness: c(v("brightness") / 100), contrast: c(v("contrast") / 100), sharpness: c(v("sharpness") / 100) };
+    },
+  },
+  { from: "ImageDesaturate+", to: "LCImageDesaturate", names: { IMAGE: "image" } },
+  { from: "ChromaticAberration", to: "LCChromaticAberration", names: { IMAGE: "image" } },
+  // Pro Post samples the LUT trilinearly; strength blends the same way
+  { from: "ProPostApplyLUT", to: "LCApplyLUT", names: {}, outAt: ["image"], set: () => ({ interpolation: "trilinear" }) },
+  {
+    from: "ResizeImageNode", to: "LCImageMaskResize", names: { width: "custom_width", height: "custom_height", IMAGE: "image" }, drop: ["method"],
+    set: (old) => ({ match_aspect_ratio: false, aspect_ratio: "custom", upscale_by: "none", proportion: "stretch", divisible_by: 1,
+      upscale_method: { NEAREST: "nearest-exact", LANCZOS: "lanczos", BICUBIC: "bicubic" }[old.widgets?.find((w) => w.name === "method")?.value] || "lanczos" }),
+  },
+  // controlnet_aux preprocessors
+  { from: "BAE-NormalMapPreprocessor", to: "LCNormalBAE", names: { IMAGE: "normal_map" }, drop: ["resolution"],
+    set: (old) => ({ resolution: Math.max(256, Math.min(2048, Number(old.widgets?.find((w) => w.name === "resolution")?.value) || 512)) }) },
+  {
+    from: "DepthAnythingV2Preprocessor", to: "LCDepthAnythingV2", names: { IMAGE: "depth" }, drop: ["ckpt_name", "resolution"],
+    set: (old) => {
+      const ck = String(old.widgets?.find((w) => w.name === "ckpt_name")?.value || "depth_anything_v2_vitl.pth");
+      const size = /vits/.test(ck) ? "Small" : /vitb/.test(ck) ? "Base" : "Large"; // no Giant in LC: Large is the closest
+      const opts = LiteGraph.registered_node_types?.LCDepthAnythingV2?.nodeData?.input?.required?.model?.[0] || [];
+      const res = Number(old.widgets?.find((w) => w.name === "resolution")?.value) || 518;
+      return { ...(opts.find((o) => o.includes(size)) ? { model: opts.find((o) => o.includes(size)) } : {}), resolution: Math.max(224, Math.min(2044, Math.round(res / 14) * 14)) };
+    },
+  },
+  // Detail Daemon (Jonseed): LC's schedule is the same (bias = peak). The original multiplies amount by CFG, LC doesn't,
+  // so a set cfg override is folded into the amount; otherwise the amount carries over as it is
+  {
+    from: "DetailDaemonSamplerNode", to: "LCDetailDaemon", names: { detail_amount: "amount", bias: "peak" },
+    drop: ["start_offset", "end_offset", "fade", "smooth", "cfg_scale_override", "detail_amount"],
+    set: (old) => {
+      const v = (n, fb) => { const x = Number(old.widgets?.find((w) => w.name === n)?.value); return Number.isFinite(x) ? x : fb; };
+      const cfg = v("cfg_scale_override", 0);
+      return { amount: Math.max(-5, Math.min(5, v("detail_amount", 0.1) * (cfg > 0 ? cfg : 1))), mode: "classic" };
+    },
+  },
 ];
+
+// one number -> LC Slider settings (a range around the value)
+function sliderFor(raw, decimals) {
+  const v = Number(raw);
+  const x = Number.isFinite(v) ? (decimals ? v : Math.round(v)) : 0;
+  return { value: x, min: Math.min(0, Math.floor(x)), max: Math.max(decimals ? 1 : 100, Math.ceil(Math.abs(x) * 2)), step: decimals ? 0.01 : 1, decimals };
+}
+
+// PlagueKind's LoRA stack keeps its rows as JSON in the stack_data widget (and node.properties)
+function pkRows(node) {
+  const raw = node.widgets?.find((w) => w.name === "stack_data")?.value || node.properties?.stack_data || "[]";
+  try {
+    const r = JSON.parse(raw);
+    return Array.isArray(r) ? r : [];
+  } catch (_) {
+    return [];
+  }
+}
 
 // Pixaroma keeps state as JSON in node.properties
 function pixState(node, prop) {
@@ -146,6 +345,32 @@ function pixState(node, prop) {
 const pixSep = (st) => (st.sep === "custom" ? String(st.customSep ?? "") : { space: " ", newline: "\n", none: "" }[st.sep] ?? ", ");
 
 const registered = (t) => !!LiteGraph.registered_node_types?.[t];
+
+// A node whose pack is missing keeps its settings only as a list of values. WIDGET_ORDER names them again, so the
+// swap reads them the same way as on an installed node. Everything else (wires, title, place) comes from the real node.
+const CONTROL = new Set(["fixed", "increment", "decrement", "randomize"]);
+function readable(node) {
+  // the frontend gives a missing node placeholder widgets named UNKNOWN, UNKNOWN_1...: their values are kept, not their names
+  if (registered(node.type)) return node;
+  const order = WIDGET_ORDER[node.type];
+  const wv = node.widgets?.length ? node.widgets.map((w) => w.value) : node.widgets_values;
+  if (!order || wv == null) return node;
+  let widgets;
+  if (!Array.isArray(wv)) widgets = Object.entries(wv).map(([name, value]) => ({ name, value }));
+  else if (order === "*") widgets = wv.map((value, i) => ({ name: `#${i}`, value }));
+  else {
+    widgets = [];
+    let i = 0;
+    for (const name of order) {
+      if (i >= wv.length) break;
+      const value = wv[i++];
+      widgets.push({ name, value });
+      if (typeof value === "number" && CONTROL.has(wv[i])) i++; // a seed's control_after_generate
+    }
+  }
+  return new Proxy(node, { get: (t, k) => (k === "widgets" ? widgets : Reflect.get(t, k)) });
+}
+const readableOk = (node, sw) => registered(node.type) || sw.missingOk || !!WIDGET_ORDER[node.type];
 export const titleOf = (t) => LiteGraph.registered_node_types?.[t]?.nodeData?.display_name || LiteGraph.registered_node_types?.[t]?.title || t;
 
 function allGraphs() {
@@ -166,6 +391,14 @@ function defOf(t) {
 const sel = (sw, name) => sw.names?.[name] ?? name;
 // an output's real name: some packs blank the label on the canvas (mxToolkit), so fall back to the node's definition
 const outName = (node, i) => node.outputs?.[i]?.name || LiteGraph.registered_node_types?.[node.type]?.nodeData?.output_name?.[i] || "";
+// A node's outgoing wires, read from the graph's own link list: some nodes (mxStop) don't keep their output's link list up to date
+function outLinks(node) {
+  const graph = node.graph || app.graph;
+  const all = graph.links instanceof Map ? [...graph.links.values()] : Object.values(graph.links || {});
+  return all.filter((l) => l && l.origin_id === node.id && graph.getNodeById(l.target_id)?.inputs?.[l.target_slot]?.link === l.id);
+}
+// outAt: LC output names by position, for nodes whose output name changes with what is wired (mxStop, Pro Post)
+const outTo = (sw, node, i) => sw.outAt?.[i] ?? sel(sw, outName(node, i));
 
 // A text box that feeds a negative prompt becomes LC Negative, not Prompt (LCPositive): follow its wires a few steps
 // (text box -> CLIP Text Encode -> the sampler's negative). Only when a negative is found and no positive.
@@ -209,19 +442,30 @@ export function plan(node, sw) {
   if (sw.frontend) return registered(sw.to) ? { ok: true, drops: [] } : { ok: false, why: `${titleOf(sw.to)} isn't installed` };
   const def = defOf(sw.to);
   if (!def) return { ok: false, why: `${titleOf(sw.to)} isn't installed` };
-  // a node whose pack is missing has no readable settings: only swap it when it holds none worth keeping
-  if (!registered(node.type) && !sw.missingOk) return { ok: false, why: "its pack isn't installed, so its settings can't be read" };
+  // a missing pack's node is read through WIDGET_ORDER; without an entry its settings can't be named
+  if (!readableOk(node, sw)) return { ok: false, why: "its pack isn't installed, so its settings can't be read" };
+  node = readable(node);
+  if (sw.when && !sw.when(node)) return { ok: false, why: sw.whyNot || "its settings have no LC home" };
   for (const inp of node.inputs || []) {
     if (inp.link == null) continue;
     const to = sel(sw, inp.name);
     if (!def.inputs.has(to)) return { ok: false, why: `its ${inp.name} input has no match` };
   }
-  for (const [i, out] of (node.outputs || []).entries()) {
-    if (!out.links?.length) continue;
-    const to = sel(sw, outName(node, i));
+  const wiredOut = new Set(outLinks(node).map((l) => l.origin_slot));
+  for (const [i] of (node.outputs || []).entries()) {
+    if (!wiredOut.has(i)) continue;
+    const to = outTo(sw, node, i);
     if (!def.outputs.includes(to)) return { ok: false, why: `its ${outName(node, i) || "unnamed"} output has no match` };
   }
-  const drops = (node.widgets || []).filter((w) => sw.drop?.includes(w.name)).map((w) => w.name);
+  // a "drop" setting that set() / when() reads is converted, not lost: only list the ones nothing reads
+  const used = new Set();
+  const spy = new Proxy(node, {
+    get: (t, k) => (k === "widgets"
+      ? (t.widgets || []).map((w) => new Proxy(w, { get: (o, p) => { if (p === "value") used.add(o.name); return Reflect.get(o, p); } }))
+      : Reflect.get(t, k)),
+  });
+  try { sw.when?.(spy); sw.set?.(spy); sw.companion?.set?.(spy); } catch { /* a reader that fails just leaves its settings listed */ }
+  const drops = (node.widgets || []).filter((w) => sw.drop?.includes(w.name) && !used.has(w.name)).map((w) => w.name);
   return { ok: true, drops };
 }
 
@@ -262,23 +506,20 @@ export function swapNode(old, base) {
   if (!fresh) return null;
   // what the old node holds, before it goes
   const values = {};
+  const view = readable(old); // settings of a missing pack's node, by name
   // buttons hold no value, and pressing one (rgthree's and LC's "🎲 New Fixed Random") would change the settings
-  for (const w of old.widgets || []) if (w.name && w.type !== "button" && !sw.drop?.includes(w.name)) values[sel(sw, w.name)] = w.value;
-  Object.assign(values, sw.set?.(old) || {});
+  for (const w of view.widgets || []) if (w.name && w.type !== "button" && !sw.drop?.includes(w.name)) values[sel(sw, w.name)] = w.value;
+  Object.assign(values, sw.set?.(view) || {});
   const ins = (old.inputs || []).filter((i) => i.link != null).map((i) => {
     const l = graph.links?.get?.(i.link) ?? graph.links?.[i.link];
     return l && { to: sel(sw, i.name), from: graph.getNodeById(l.origin_id), slot: l.origin_slot };
   }).filter(Boolean);
   const outs = [];
-  (old.outputs || []).forEach((o, i) => {
-    for (const id of o.links || []) {
-      const l = graph.links?.get?.(id) ?? graph.links?.[id];
-      if (l) outs.push({ from: sel(sw, outName(old, i)), node: graph.getNodeById(l.target_id), slot: l.target_slot });
-    }
-  });
+  // outAt nodes connect by position: their outputs can rename themselves once an input is wired (LC Stop takes the input's type)
+  for (const l of outLinks(old)) outs.push({ from: outTo(sw, old, l.origin_slot), at: sw.outAt ? l.origin_slot : null, node: graph.getNodeById(l.target_id), slot: l.target_slot });
   const pos = [...old.pos], mode = old.mode, size = old.size ? [...old.size] : null;
   const converted = sw.convert ? sw.convert(old) : null; // read before the old node goes
-  const compValues = sw.companion && registered(sw.companion.type) ? sw.companion.set?.(old) || {} : null;
+  const compValues = sw.companion && registered(sw.companion.type) ? sw.companion.set?.(view) || {} : null;
   graph.remove(old);
   fresh.pos = pos;
   fresh.mode = mode;
@@ -304,7 +545,7 @@ export function swapNode(old, base) {
     if (c.from && slot >= 0) c.from.connect(c.slot, fresh, slot);
   }
   for (const c of outs) {
-    const slot = fresh.findOutputSlot?.(c.from) ?? fresh.outputs?.findIndex((o) => o.name === c.from);
+    const slot = c.at ?? fresh.findOutputSlot?.(c.from) ?? fresh.outputs?.findIndex((o) => o.name === c.from);
     if (c.node && slot >= 0) fresh.connect(slot, c.node, c.slot);
   }
   if (compValues) {
@@ -322,7 +563,7 @@ export function swapNode(old, base) {
     }
   }
   try {
-    sw.after?.(fresh, old);
+    sw.after?.(fresh, view);
   } catch (_) {}
   const min = fresh.computeSize?.() || fresh.size;
   if (size) fresh.setSize?.([Math.max(size[0], min[0]), Math.max(min[1], fresh.size[1])]);

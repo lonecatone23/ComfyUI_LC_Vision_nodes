@@ -1,6 +1,6 @@
 // Vision Assistant, Movie tab: an H3 long-video project at a glance. Segments made and still to make, the face /
 // join / color checks as plain-words cards with a fix button, one-click redo, render-all and a player. Reads
-// output/LC_H3/<project>/ through /lc_vision/movie/*; acts by setting the LC H3 Segment node and queueing.
+// output/LC_H3/<project>/ through /lc_vision/movie/*; acts by setting LC H3 Make (or the older LC H3 Segment) and queueing.
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { projectSource } from "../lc_vision_project.js";
@@ -46,7 +46,9 @@ function lcSound(v) {
 }
 
 
-const SEGMENT = "LCH3Segment";
+// LC H3 Make (LC_AV 0.5+) builds, samples and saves each shot; older workflows have LC H3 Segment. Same make / index widgets
+const MAKERS = ["LCH3Make", "LCH3Segment"];
+const STORY = "LCH3Story";
 const REDIRECT = "LCVisionRedirect";
 const DIRECTOR = "LCVisionDirector";
 // picked: a project chosen in the tab's own list, kept until the workflow's project changes
@@ -66,15 +68,25 @@ function shotLine(action) {
   return [cam, what].filter(Boolean).join(" · ");
 }
 const nodesOf = (type) => (app.graph?._nodes || []).filter((n) => n.type === type || n.comfyClass === type);
+const maker = () => MAKERS.map((t) => nodesOf(t)[0]).find(Boolean);
+const makerName = () => (maker()?.type === "LCH3Segment" ? "LC H3 Segment" : "LC H3 Make");
 const widget = (node, name) => (node?.widgets || []).find((w) => w.name === name);
 
 /** True when the open workflow can make H3 long-video segments, so the tab only shows where it means something. */
 export function relevant() {
-  return nodesOf(SEGMENT).length > 0;
+  return !!maker();
 }
 
-// the Showrunner's project, also when it comes in on a wire (a text node, Set / Get)
+// the project: LC H3 Story's own, or the Showrunner's (also when it comes in on a wire: a text node, Set / Get)
 async function projectFromGraph() {
+  const story = nodesOf(STORY)[0];
+  if (story) {
+    try {
+      return String(JSON.parse(widget(story, "story")?.value || "{}").project || "").trim();
+    } catch (_e) {
+      return "";
+    }
+  }
   const d = nodesOf(DIRECTOR)[0];
   if (!d) return "";
   try {
@@ -130,7 +142,7 @@ function problems(d) {
     if (j.flag) out.push({ lvl: 1, title: `Jumpy join into segment ${j.segment}`, text: `At ${j.time_s.toFixed(2)} s the picture jumps ${j.jump.toFixed(2)}x more than normal motion. Redo segment ${j.segment}.`, act: ["redo", j.segment] });
   }
   for (const r of d.report?.drift || []) {
-    if (r.flag) out.push({ lvl: 1, title: `Color drifting in segment ${r.segment}`, text: `Color shift ${r.delta_e.toFixed(1)} from the start of its scene${r.warmer_by > 2 ? " (getting warmer)" : r.warmer_by < -2 ? " (getting cooler)" : ""}. Set color_match to 0.3 on the LC H3 Segment node and redo it. Skip this if the scene walks into new light on purpose.`, act: ["redo", r.segment] });
+    if (r.flag) out.push({ lvl: 1, title: `Color drifting in segment ${r.segment}`, text: `Color shift ${r.delta_e.toFixed(1)} from the start of its scene${r.warmer_by > 2 ? " (getting warmer)" : r.warmer_by < -2 ? " (getting cooler)" : ""}. Set color_match to 0.3 on ${makerName()} and redo it. Skip this if the scene walks into new light on purpose.`, act: ["redo", r.segment] });
   }
   // one card per segment: a redo fixes every problem it has at once
   for (let k = out.length - 1; k > 0; k--) {
@@ -143,16 +155,16 @@ function problems(d) {
   }
   const next = segs.find((s) => !s.done);
   if (next) out.push({ lvl: 0, title: `Next: segment ${next.index} (${next.mode.toLowerCase()})`, text: shotLine(next.action), act: ["next", next.index] });
-  else if (segs.length && d.full_outdated) out.push({ lvl: 0, title: "The joined video is out of date", text: "Segments changed after the last join. Redo any segment and LC H3 Segment Save joins them all again.", act: null });
-  else if (segs.length && !d.full) out.push({ lvl: 0, title: "All segments made", text: "LC H3 Segment Save joins them after every save: the full video is in the project folder.", act: null });
+  else if (segs.length && d.full_outdated) out.push({ lvl: 0, title: "The joined video is out of date", text: `Segments changed after the last join. Redo any segment and ${makerName()} joins them all again.`, act: null });
+  else if (segs.length && !d.full) out.push({ lvl: 0, title: "All segments made", text: `${makerName()} joins them after every save: the full video is in the project folder.`, act: null });
   return out.sort((a, b) => b.lvl - a.lvl);
 }
 
 async function queueSegment(index, newSeed, make = "") {
-  const segNode = nodesOf(SEGMENT)[0];
-  if (!segNode) return "There is no LC H3 Segment node in this workflow.";
+  const segNode = maker();
+  if (!segNode) return "There is no LC H3 Make node in this workflow.";
   const iw = widget(segNode, "index");
-  const sw = widget(segNode, "seed");
+  const sw = widget(segNode, "seed"); // LC H3 Make has none: every shot and redo gets a new seed by itself
   const mw = widget(segNode, "make"); // LC_AV 0.5: make = next segment / all remaining / redo
   const redirect = nodesOf(REDIRECT)[0]; // older workflows still have Redirect as its own node
   const rw = widget(redirect, "index");
@@ -174,7 +186,7 @@ async function queueSegment(index, newSeed, make = "") {
 }
 
 async function queueRemaining(count) {
-  const segNode = nodesOf(SEGMENT)[0];
+  const segNode = maker();
   if (widget(segNode, "make")) return queueSegment(0, false, "all remaining"); // one run, it chains itself
   for (let k = 0; k < count; k++) {
     const err = await queueSegment(0, false);
@@ -192,14 +204,14 @@ export function render(body, { toast, rerender, askChat }) {
   }
   const d = st.data;
   if (!d || d.error) {
-    body.innerHTML = `<div class="va-hint">${esc(d?.error || "No movie project yet.")} Run LC Vision Showrunner once to write the plan; it saves to output/LC_H3/&lt;project&gt;/.</div>`;
+    body.innerHTML = `<div class="va-hint">${esc(d?.error || "No movie project yet.")} Run LC H3 Story or LC Vision Showrunner once to write the plan; it saves to output/LC_H3/&lt;project&gt;/.</div>`;
     return;
   }
   const segs = d.segments || [];
   const done = segs.filter((s) => s.done);
   const secs = done.reduce((t, s) => t + (s.frames || 0), 0) / 24;
   const probs = problems(d);
-  const picker = (st.projects || []).length > 1 && !projectFromGraph()
+  const picker = (st.projects || []).length > 1 && !st.graphProject
     ? `<select class="va-input va-model" data-m="pick">${st.projects.map((p) => `<option${p.name === d.project ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select>` : "";
   const bust = Math.round(Date.now() / 5000);
   body.innerHTML = `

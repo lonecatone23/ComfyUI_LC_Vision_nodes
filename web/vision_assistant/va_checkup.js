@@ -217,6 +217,19 @@ export async function hideTips(titles) {
   else app.ui?.settings?.setSettingValue?.(HIDDEN_TIPS, next);
 }
 
+// Swaps and note conversions the user chose not to be offered, by node type (a ComfyUI setting, like the hidden tips)
+export const HIDDEN_SWAPS = "LCVision.Assistant.HiddenSwaps";
+export function hiddenSwaps() {
+  const v = app.extensionManager?.setting?.get?.(HIDDEN_SWAPS) ?? app.ui?.settings?.getSettingValue?.(HIDDEN_SWAPS);
+  return Array.isArray(v) ? v : [];
+}
+export async function hideSwaps(types) {
+  const next = [...new Set([...hiddenSwaps(), ...types])];
+  if (app.extensionManager?.setting?.set) await app.extensionManager.setting.set(HIDDEN_SWAPS, next);
+  else app.ui?.settings?.setSettingValue?.(HIDDEN_SWAPS, next);
+}
+const HIDE_SWAPS = { label: "Hide unticked", tip: "Stops offering the unticked ones. Bring them back in LC Settings ⚙️ > Vision > Hidden swaps.", run: { hideSwaps: true } };
+
 // ------------------------------------------------------------------ the checks
 export async function checkOptimization() {
   const cards = [];
@@ -579,6 +592,10 @@ const PACK_HINTS = [
   [/^(Text box|Text Multiline|Image Save|Text Concatenate)$/, "WAS Node Suite", "https://github.com/WASasquatch/was-node-suite-comfyui"],
   [/^(MinimaxH3LatentUpscaler3D|MinimaxH3LatentUpscalerNode2D|MMH3TemporalSplitParamsV10|MMH3SpatialSplitParamsV10|MMH3SplitUpscale)$/, "Comfyui_Minimax_h3_latent_Upscaler", "https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler",
     "The Manager installs a different pack under this name (xmarre's Plus fork, other settings), so install this one by hand: git clone it into custom_nodes, then restart."],
+  // only bbaudio's original has these; PlagueKind's fork registers the other MMH3 names and would replace the original's
+  [/^MMH3(FunControlnetParams|SpatialInpaintParams|TiledDiffusion)$/, "Comfyui-MMH3-UltimateUpscale", "https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale",
+    "PlagueKind-Nodes uses the same MMH3 node names but doesn't have this one. With both packs installed, one silently replaces the other's MMH3 nodes."],
+  [/^MMH3/, "Comfyui-MMH3-UltimateUpscale", "https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale"],
 ];
 
 const ghOwner = (href) => (String(href || "").match(/github\.com\/([^/]+)/) || [])[1] || "";
@@ -608,8 +625,12 @@ export function checkBrokenNodes() {
     t.get(n.type).push(n);
   }
   const cards = [];
+  // missing nodes the swap card can replace outright (settings and wires carry over)
+  const hiddenSw = new Set(hiddenSwaps());
+  const swappable = new Set(swap.find().filter((g) => !hiddenSw.has(g.sw.from)).flatMap((g) => g.nodes));
   for (const pk of packs.values()) {
     const all = [...pk.types.values()].flat();
+    const canSwap = all.filter((n) => swappable.has(n)).length;
     const types = [...pk.types.keys()];
     const swaps = types.map((t) => {
       const r = REPLACEMENTS[t] || {};
@@ -624,7 +645,8 @@ export function checkBrokenNodes() {
       level: 3,
       title: pk.name ? `Missing pack: ${pk.name} (${what})` : `Missing node: ${types[0]}`,
       text: `${pk.name ? `${what} from ${pk.name}${ghOwner(pk.href) ? ` (by ${ghOwner(pk.href)})` : ""} ${all.length === 1 ? "isn't" : "aren't"} installed: ${list}.` : `${what} of this type ${all.length === 1 ? "isn't" : "aren't"} installed.`}`
-        + (swapText ? ` Replacements you already have: ${swapText}.` : "")
+        + (canSwap ? ` The Swap for LC nodes card replaces ${canSwap === all.length ? (all.length === 1 ? "it" : "all of them") : `${canSwap} of them`}, settings and wires included.` : "")
+        + (swapText && canSwap < all.length ? ` Replacements you already have: ${swapText}.` : "")
         + (pk.note ? ` ${pk.note}` : ` Install it from the Manager (Install Missing Custom Nodes)${pk.href ? " or from its page" : ""}.`),
       nodeId: where(all[0]),
       nodeIds: [...new Set(all.map(where))],
@@ -662,6 +684,14 @@ const CLASHES = {
   MinimaxH3LatentUpscaler3D: [
     { marker: ["enable_temporal_chunking"], folder: "Comfyui_Minimax_h3_latent_Upscaler", name: "the original H3 latent upscaler by LBH-123-AI", href: "https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler" },
     { marker: ["keep_proportion", "offload_after_upscale"], folder: "Comfyui_Minimax_h3_latent_Upscaler-Plus", name: "xmarre's Plus fork (the one the Manager installs)", href: "https://github.com/xmarre/Comfyui_Minimax_h3_latent_Upscaler-Plus" },
+  ],
+  // bbaudio's MMH3 UltimateUpscale vs PlagueKind's fork inside PlagueKind-Nodes (same node names)
+  MMH3SpatialSplitParams: [
+    { marker: ["brightness_match", "dynamic_fade", "dynamic_fade_min", "masked_area_noise"], folder: "Comfyui-MMH3-UltimateUpscale", name: "bbaudio's original MMH3 UltimateUpscale", href: "https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale" },
+    { marker: ["joint_steps", "token_budget"], folder: "ComfyUI-PlagueKind-Nodes", name: "PlagueKind's fork (in PlagueKind-Nodes)", href: "https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes" },
+  ],
+  MMH3LatentUpscaleWithModelParams: [
+    { marker: ["offload_model"], folder: "Comfyui-MMH3-UltimateUpscale", name: "bbaudio's original MMH3 UltimateUpscale", href: "https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale" },
   ],
 };
 
@@ -706,7 +736,7 @@ export function checkWrongPack() {
     const what = g.nodes.length === 1 ? label(g.nodes[0]) : `${g.nodes.length} ${typeTitle(type)} nodes`;
     const was = g.nodes.length === 1 ? "was" : "were";
     const list = extra.slice(0, 4).join(", ") + (extra.length > 4 ? ` and ${extra.length - 4} more` : "");
-    cards.push(want && want.folder !== folder ? {
+    cards.push(want && want.folder !== folder.split(".")[0] ? {
       level: 3, title: `Wrong pack: ${typeTitle(type)}`,
       text: `${what} ${was} saved with ${want.name}, but this ComfyUI has ${folder || "another pack"}. Both packs use the name ${type} with different settings (this workflow has ${list}), so the Manager can't sort it out.`
         + ` In custom_nodes keep only ${want.folder}: move the other folder out, git clone this one, restart.`,
@@ -724,7 +754,8 @@ export function checkWrongPack() {
 
 // ------------------------------------------------------------------ swap for LC nodes (first card in the checkup)
 export function checkSwaps() {
-  const groups = swap.find().filter((g) => g.nodes.length);
+  const hidden = new Set(hiddenSwaps());
+  const groups = swap.find().filter((g) => g.nodes.length && !hidden.has(g.sw.from));
   if (!groups.length) return [];
   const count = groups.reduce((k, g) => k + g.nodes.length, 0);
   const nodes = groups.flatMap((g) => g.nodes);
@@ -735,7 +766,7 @@ export function checkSwaps() {
     swap: groups.map((g) => ({ from: g.sw.from, to: [...g.targets].map(swap.titleOf).join(" / "), count: g.nodes.length, drops: [...g.drops], blocked: g.blocked.length, why: g.blocked[0]?.why || "" })),
     nodeId: where(nodes[0]),
     nodeIds: [...new Set(nodes.map(where))],
-    actions: [{ label: "Swap ticked", tip: "Replaces every ticked node with its LC twin, keeping settings and wires", run: { swap: true } }],
+    actions: [{ label: "Swap ticked", tip: "Replaces every ticked node with its LC twin, keeping settings and wires", run: { swap: true } }, HIDE_SWAPS],
   }];
 }
 
@@ -745,7 +776,8 @@ export function swapTypes(types) {
 
 /** Every note that isn't an LC Note yet (core Note, Markdown Note, any other note node). */
 export function checkNotes() {
-  const groups = swap.findNotes().filter((g) => g.nodes.length);
+  const hidden = new Set(hiddenSwaps());
+  const groups = swap.findNotes().filter((g) => g.nodes.length && !hidden.has(g.sw.from));
   if (!groups.length) return [];
   const count = groups.reduce((k, g) => k + g.nodes.length, 0);
   const nodes = groups.flatMap((g) => g.nodes);
@@ -756,7 +788,7 @@ export function checkNotes() {
     swap: groups.map((g) => ({ from: swap.titleOf(g.sw.from), key: g.sw.from, to: "LC Note 📝", count: g.nodes.length, drops: [], blocked: 0, why: "" })),
     nodeId: where(nodes[0]),
     nodeIds: [...new Set(nodes.map(where))],
-    actions: [{ label: "Convert ticked", tip: "Turns every ticked note into an LC Note, keeping its text, title, colours and place", run: { swap: true, notes: true } }],
+    actions: [{ label: "Convert ticked", tip: "Turns every ticked note into an LC Note, keeping its text, title, colours and place", run: { swap: true, notes: true } }, HIDE_SWAPS],
   }];
 }
 

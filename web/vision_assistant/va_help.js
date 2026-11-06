@@ -17,9 +17,11 @@ export const HELP_HTML = [
   ])),
   S("🩺 Checkup", UL([
     "Sits at the top of the Chat tab and runs by itself. A <b>red dot</b> on the icon means it found a problem.",
-    "It catches:<ul><li>missing packs (with the pack page)</li><li>missing models (with a download link or a search)</li><li>files sitting in a subfolder</li><li>the wrong text encoder</li><li>a model format your card can't run well</li><li>errors from the last run, in plain words</li></ul>",
-    "💡 <b>Swap for LC nodes</b> (first card): nodes from other packs with an LC twin. Tick them, press <b>Swap ticked</b>: settings and wires carry over. Undo is on the Snapshots tab.",
+    "It catches:<ul><li>missing packs (with the pack page) and nodes from the wrong pack</li><li>missing or renamed models (with a download link or a search)</li><li>files sitting in a subfolder</li><li>models that need a license accepted first</li><li>the wrong text encoder or VAE</li><li>a model format your card can't run well</li><li>settings that don't fit the model (steps, cfg, clip skip, shift, etc.)</li><li>damaged wiring</li><li>errors from the last run, in plain words</li></ul>",
+    "💡 <b>Swap for LC nodes</b> (first card): nodes from other packs with an LC twin, even when that pack isn't installed. Tick them, press <b>Swap ticked</b>: settings and wires carry over. Undo is on the Snapshots tab.",
     "📝 <b>Convert notes to LC Notes</b> (second card): core Notes, Markdown Notes and any other note node. Text, title, colours and line breaks carry over, and web addresses become real links. LC Notes translate and fix spelling. Undo is on the Snapshots tab.",
+    "<b>Hide unticked</b> (on both cards) stops offering the ones you want to keep. <b>Hide these tips</b> does the same for system report tips. Bring them back in <b>LC Settings ⚙️ > Vision</b>.",
+    "🎬 <b>Movie</b> tab: shows up with LC H3 Make (LC AV). Every segment with a player, face, join and color checks, and one-click redo.",
     "<b>Show node</b> makes the node glow. Fix buttons do the one-click fixes.",
     "Hit <b>Check again</b> after you install or download something.",
   ])),
