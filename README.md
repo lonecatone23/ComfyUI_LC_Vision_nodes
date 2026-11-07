@@ -80,6 +80,7 @@ Text-only rewrite pass over the same model handle. A vision model is still a per
 - **`Character Anchor` preset** for character datasets: give it the reference picture(s) and a few notes ("blonde hair, fit") and it writes one short description of the person only (face, eyes, hair, skin, build). Never the clothing, pose, background or light, so every prompt in a list can set those. Its inputs don't change between rows, so it runs once per list.
 - **`style_tag`**, same shared list as Caption.
 - **MOSS BBOX:** base prompt into LC MOSS Layout Prompt's prompt box, its output into `prompt_text`. The output stays a layout: the scene and every box are enhanced on their own, box names and positions kept. Box captions stay short (about 60 tokens): longer, the subjects outgrow their boxes. Bypass the Layout Prompt and the base prompt comes through as a normal prompt. No base prompt: the scene stays empty and the model picks the setting.
+- **✨ boxes in LC Bounding Boxes (LC123):** an idea row on the box editor. With a picture, the vision model finds the subjects and writes their boxes, descriptions and palettes (Qwen3-VL 8B is the default: its own box grid is the editor's); without one, it plans the boxes from the idea. Signs with words become text boxes. Runs outside the queue, never during a render, and unloads when done.
 - **Think-leak retry:** if the output looks like leftover planning text instead of the actual rewritten prompt, one retry asks explicitly for just the final text.
 
 ## LC Vision Danbooru Caption 🏷️

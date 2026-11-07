@@ -285,8 +285,28 @@ def _parse_layout(layout):
     except Exception:
         return None
     if isinstance(data, dict) and isinstance(data.get("summary"), dict) and isinstance(data.get("items"), list):
-        return data
+        return _tidy_layout(data)
     return None
+
+
+def _tidy_layout(data):
+    """A hand-written or other node's layout: scene meta / palette / canvas at the top level go inside summary (where
+    MOSS reads them), and text boxes with nothing to write are left out (MOSS would make up words for them)."""
+    summary = data["summary"]
+    for key in ("meta", "palette", "canvas"):
+        if key not in data:
+            continue
+        value = data.pop(key)
+        if key == "canvas":
+            summary.setdefault("canvas", value)
+        elif isinstance(value, list):
+            summary[key] = list(summary.get(key) or []) + [v for v in value if v not in (summary.get(key) or [])]
+    kept = [it for it in data["items"]
+            if not (isinstance(it, dict) and it.get("label") == "text" and not str(it.get("text") or "").strip())]
+    if len(kept) != len(data["items"]):
+        print(f"[LC Vision] Layout: left out {len(data['items']) - len(kept)} text box(es) with no text to write")
+        data["items"] = kept
+    return data
 
 
 NODE_CLASS_MAPPINGS = {
