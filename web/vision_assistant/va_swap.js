@@ -266,6 +266,8 @@ export const SWAPS = [
   { from: "WidgetToString", to: "LCWidgetToString", names: {} },
   // text tools
   { from: "RemoveDuplicateTags|LP", to: "LCDuplicateTags", names: { "tags TEXT": "text" }, set: () => ({ keep: "first" }) },
+  // same inputs and outputs; blank lines are skipped on LC (on CR a blank line was a prompt of only the prepend text)
+  { from: "CR Prompt List", to: "LCPromptList", names: {} },
   {
     from: "CR Text Replace", to: "LCTextReplace", names: { find1: "find_1", replace1: "replace_1", find2: "find_2", replace2: "replace_2", find3: "find_3", replace3: "replace_3", STRING: "text" },
     set: (old) => ({ entrycount: Math.max(1, ...[1, 2, 3].filter((i) => String(old.widgets?.find((w) => w.name === `find${i}`)?.value ?? "") !== "")) }),
@@ -518,6 +520,7 @@ export function swapNode(old, base) {
   // outAt nodes connect by position: their outputs can rename themselves once an input is wired (LC Stop takes the input's type)
   for (const l of outLinks(old)) outs.push({ from: outTo(sw, old, l.origin_slot), at: sw.outAt ? l.origin_slot : null, node: graph.getNodeById(l.target_id), slot: l.target_slot });
   const pos = [...old.pos], mode = old.mode, size = old.size ? [...old.size] : null;
+  const look = { color: old.color, bgcolor: old.bgcolor }; // a colour you gave the old node stays (else the LC node's own)
   const converted = sw.convert ? sw.convert(old) : null; // read before the old node goes
   const compValues = sw.companion && registered(sw.companion.type) ? sw.companion.set?.(view) || {} : null;
   graph.remove(old);
@@ -525,6 +528,8 @@ export function swapNode(old, base) {
   fresh.mode = mode;
   graph.add(fresh);
   if (title) fresh.title = title;
+  if (look.color) fresh.color = look.color;
+  if (look.bgcolor) fresh.bgcolor = look.bgcolor;
   if (converted) {
     converted.apply(fresh);
     if (size) fresh.setSize?.([Math.max(size[0], 300), Math.max(size[1], 200)]);

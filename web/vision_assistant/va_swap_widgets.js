@@ -106,6 +106,7 @@ export const WIDGET_ORDER = {
   WidgetToString: ["id", "widget_name", "return_all", "node_title", "allowed_float_decimals"],
   "RemoveDuplicateTags|LP": [],
   "CR Text Replace": ["find1", "replace1", "find2", "replace2", "find3", "replace3"],
+  "CR Prompt List": ["prepend_text", "multiline_text", "append_text", "start_index", "max_rows"],
   FL_ImageAdjuster: ["hue", "saturation", "brightness", "contrast", "sharpness"],
   "ImageDesaturate+": ["factor", "method"],
   ChromaticAberration: ["red_shift", "red_direction", "green_shift", "green_direction", "blue_shift", "blue_direction"],
