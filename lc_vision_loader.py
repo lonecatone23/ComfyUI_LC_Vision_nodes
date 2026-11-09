@@ -27,6 +27,92 @@ from typing import Any, Optional
 import folder_paths
 
 LLM_FOLDER_KEY = "LLM"
+# module name -> pip name, for llama-cpp-python's own dependencies (install.py adds these with the wheel)
+_PIP_NAMES = {"typing_extensions": "typing-extensions", "jinja2": "jinja2", "diskcache": "diskcache", "numpy": "numpy"}
+
+
+def llama_missing_hint(exc: BaseException) -> str:
+    """When llama_cpp fails because one of ITS dependencies is missing, the exact command that fixes it
+    (for ComfyUI's own Python). Empty for any other failure. Never installs anything."""
+    name = getattr(exc, "name", None) if isinstance(exc, ModuleNotFoundError) else None
+    if not name or name.split(".")[0] == "llama_cpp":
+        return ""
+    top = name.split(".")[0]
+    pkg = _PIP_NAMES.get(top, top)
+    return f"Missing '{pkg}'. Run: \"{sys.executable}\" -m pip install {pkg}  then restart ComfyUI."
+
+
+_CUDA12_LIBS = ("libcudart.so.12", "libcublasLt.so.12", "libcublas.so.12", "libnccl.so.2")
+_cuda_plugin_state: Optional[str] = None
+
+
+def linux_cuda_plugin() -> str:
+    """Linux only, before llama_cpp is imported. The fork's Linux wheels keep CUDA in a plugin
+    (lib/libggml-cuda.so) that needs CUDA 12 libraries; when the system can't find them llama.cpp skips
+    the plugin without a word and runs on CPU. Load them from the venv's nvidia pip packages (the ones
+    a cu12 torch ships) so the plugin finds them. Returns '' when the plugin loads (or there's nothing to
+    do), else the reason. Runs once."""
+    global _cuda_plugin_state
+    if _cuda_plugin_state is not None:
+        return _cuda_plugin_state
+    _cuda_plugin_state = ""
+    if not sys.platform.startswith("linux"):
+        return ""
+    import ctypes
+    import glob
+    import importlib.util
+    import site
+
+    try:
+        spec = importlib.util.find_spec("llama_cpp")
+    except Exception:
+        return ""
+    if not spec or not spec.origin:
+        return ""
+    lib = os.path.join(os.path.dirname(spec.origin), "lib")
+    plugin = os.path.join(lib, "libggml-cuda.so")
+    if not os.path.exists(plugin):
+        return ""  # CUDA linked in (a source build) or no CUDA at all: nothing to load
+
+    def _try() -> str:
+        try:
+            for base in ("libggml-base.so.0", "libggml-base.so"):
+                if os.path.exists(os.path.join(lib, base)):
+                    ctypes.CDLL(os.path.join(lib, base), mode=ctypes.RTLD_GLOBAL)
+                    break
+            ctypes.CDLL(plugin, mode=ctypes.RTLD_GLOBAL)
+            return ""
+        except OSError as exc:
+            return str(exc)
+
+    err = _try()
+    if err:
+        dirs = [p for p in sys.path if p.endswith(("site-packages", "dist-packages"))]
+        try:
+            dirs += site.getsitepackages()
+        except Exception:
+            pass
+        for name in _CUDA12_LIBS:
+            for d in dict.fromkeys(dirs):
+                hits = glob.glob(os.path.join(d, "nvidia", "*", "lib", name))
+                if hits:
+                    try:
+                        ctypes.CDLL(hits[0], mode=ctypes.RTLD_GLOBAL)
+                    except OSError:
+                        pass
+                    break
+        err = _try()
+    if err:
+        _cuda_plugin_state = (
+            f"llama-cpp's CUDA plugin cannot load ({err}), so LC Vision runs on CPU. Install the CUDA 12 runtime "
+            "libraries, or build llama-cpp-python against your own CUDA:  "
+            f"CMAKE_ARGS=\"-DGGML_CUDA=on\" \"{sys.executable}\" -m pip install "
+            "\"llama-cpp-python @ git+https://github.com/JamePeng/llama-cpp-python.git\""
+        )
+        print(f"[LC Vision] {_cuda_plugin_state}")
+    return _cuda_plugin_state
+
+
 NODE_ID = "LCVisionLoader"
 NODE_DISPLAY_NAME = "LC Vision Loader 🔬"
 MODEL_TYPE = "LC_VISION_MODEL"
@@ -399,6 +485,7 @@ def build_llama(params: LCVisionBuildParams) -> tuple[Any, Any]:
     """Construct a fresh (Llama, chat_handler) pair from build params.
     Shared by the Loader's initial load and Caption's rebuild-on-failure
     path, so both go through exactly one code path for this."""
+    linux_cuda_plugin()
     from llama_cpp import Llama
 
     handler_cls = None
@@ -629,8 +716,12 @@ class LCVisionLoader:
         keep_model_loaded: bool = True,
     ) -> tuple[LCVisionModel]:
         try:
+            linux_cuda_plugin()
             import llama_cpp  # noqa: F401
         except Exception as exc:
+            hint = llama_missing_hint(exc)
+            if hint:
+                raise RuntimeError(f"[LC Vision] llama_cpp is installed but cannot load. {hint}") from exc
             raise RuntimeError(
                 "[LC Vision] llama_cpp is not installed, or the installed copy cannot load or lacks vision "
                 f"support ({type(exc).__name__}: {exc}). ComfyUI runs on this Python: {sys.executable}  "

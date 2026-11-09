@@ -20,7 +20,7 @@ import gc
 import re
 import threading
 
-from .lc_vision_loader import _discover_vision_models, gguf_architecture, strip_thinking
+from .lc_vision_loader import _discover_vision_models, gguf_architecture, linux_cuda_plugin, strip_thinking
 
 _LOCK = threading.Lock()
 _PH = "⟦{}⟧"  # ⟦0⟧
@@ -343,6 +343,7 @@ try:
     @PromptServer.instance.routes.get("/lc_vision/translate/status")
     async def _status(_request):
         try:
+            linux_cuda_plugin()
             import llama_cpp  # noqa: F401
 
             ok = True

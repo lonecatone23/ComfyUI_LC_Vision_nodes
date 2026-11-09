@@ -22,7 +22,7 @@ import re
 import threading
 import time
 
-from .lc_vision_loader import _discover_vision_models, gguf_architecture, strip_thinking
+from .lc_vision_loader import _discover_vision_models, gguf_architecture, linux_cuda_plugin, llama_missing_hint, strip_thinking
 
 IDLE_UNLOAD = 60  # seconds: the chat model gives its VRAM back a minute after the last answer
 _LOCK = threading.Lock()
@@ -508,11 +508,12 @@ try:
     async def _status(request):
         why = ""
         try:
+            why = linux_cuda_plugin()
             import llama_cpp  # noqa: F401
 
             ok = True
-        except Exception:
-            ok, why = False, "llama-cpp-python isn't installed. Reinstall LC Vision from the Manager."
+        except Exception as exc:
+            ok, why = False, (llama_missing_hint(exc) or "llama-cpp-python isn't installed. Reinstall LC Vision from the Manager.")
         models = sorted(_discover_vision_models()) if ok else []
         if ok and not models:
             why = "No LC Vision model yet. Run an LC Vision Loader once and it downloads one."

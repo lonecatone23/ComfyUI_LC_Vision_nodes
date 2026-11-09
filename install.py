@@ -390,14 +390,86 @@ def _ensure_light_deps() -> None:
     importlib.invalidate_caches()
 
 
+def _installed_version() -> tuple[int, ...] | None:
+    """llama-cpp-python's version from pip metadata (no import), e.g. (0, 4, 6)."""
+    try:
+        from importlib.metadata import version
+
+        v = version("llama-cpp-python")
+    except Exception:
+        return None
+    return tuple(int(x) for x in re.findall(r"\d+", v.split("+")[0])[:3]) or None
+
+
+def _linux_cuda_check() -> None:
+    """Linux: the wheel's CUDA lives in lib/libggml-cuda.so, which needs CUDA 12 libraries. When the
+    system can't find them llama.cpp quietly runs on CPU, so say so here. LC Vision loads them from the
+    venv's nvidia packages at runtime when a cu12 torch has them."""
+    if not sys.platform.startswith("linux"):
+        return
+    import ctypes
+    import glob
+    import site
+
+    spec = importlib.util.find_spec("llama_cpp")
+    if not spec or not spec.origin:
+        return
+    lib = os.path.join(os.path.dirname(spec.origin), "lib")
+    plugin = os.path.join(lib, "libggml-cuda.so")
+    if not os.path.exists(plugin):
+        return
+
+    def _try() -> str:
+        try:
+            for base in ("libggml-base.so.0", "libggml-base.so"):
+                if os.path.exists(os.path.join(lib, base)):
+                    ctypes.CDLL(os.path.join(lib, base), mode=ctypes.RTLD_GLOBAL)
+                    break
+            ctypes.CDLL(plugin, mode=ctypes.RTLD_GLOBAL)
+            return ""
+        except OSError as exc:
+            return str(exc)
+
+    err = _try()
+    if err:
+        dirs = [p for p in sys.path if p.endswith(("site-packages", "dist-packages"))]
+        try:
+            dirs += site.getsitepackages()
+        except Exception:
+            pass
+        for name in ("libcudart.so.12", "libcublasLt.so.12", "libcublas.so.12", "libnccl.so.2"):
+            for d in dict.fromkeys(dirs):
+                hits = glob.glob(os.path.join(d, "nvidia", "*", "lib", name))
+                if hits:
+                    try:
+                        ctypes.CDLL(hits[0], mode=ctypes.RTLD_GLOBAL)
+                    except OSError:
+                        pass
+                    break
+        if not _try():
+            _log("CUDA plugin loads with the CUDA 12 libraries from this venv. LC Vision loads them the same way.")
+            return
+        _log(f"WARNING: llama-cpp's CUDA plugin cannot load ({err}). LC Vision would run on CPU.")
+        _log("Install the CUDA 12 runtime libraries, or build llama-cpp-python against your own CUDA:")
+        _log(f'  CMAKE_ARGS="-DGGML_CUDA=on" "{sys.executable}" -m pip install "llama-cpp-python @ git+https://github.com/{REPO}.git"')
+        return
+    _log("CUDA plugin loads: LC Vision runs on the GPU.")
+
+
 def main() -> int:
     _ensure_light_deps()
     if _already_vision_capable():
         _log("A vision-capable llama_cpp (Qwen3VLChatHandler or Qwen25VLChatHandler) is already installed. Nothing to do.")
+        _linux_cuda_check()
         return 0
 
     if _last_import_error:
         _log(f"llama_cpp is present but not usable: {_last_import_error}")
+    have = _installed_version()
+    if have and have >= (0, 4):
+        # a newer fork build (often compiled from source for this machine's CUDA): never replace it
+        _log(f"llama-cpp-python {'.'.join(map(str, have))} is newer than the tested {PINNED_VERSION}. Leaving it as it is.")
+        return 0
 
     if _current_platform_os() != "macos" and _detected_cuda_version() is None:
         amd = _is_amd_torch()
@@ -442,6 +514,7 @@ def main() -> int:
 
     if _already_vision_capable():
         _log("Install verified -- Qwen3VLChatHandler/Qwen25VLChatHandler is now importable.")
+        _linux_cuda_check()
         return 0
 
     _log("Installed the wheel, but it still doesn't expose a vision chat handler -- something's off. See README.md.")
