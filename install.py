@@ -33,6 +33,7 @@ README.md instead of installing something that cannot load.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import json
 import platform
 import os
@@ -375,7 +376,22 @@ def _report_measured_conflicts() -> None:
              "and the wheel is checked below by actually importing it.")
 
 
+# llama-cpp-python's own small pure-Python dependencies. The wheel goes in with --no-deps (so pip never
+# touches torch or numpy), which means these have to be added here when they are missing.
+LIGHT_DEPS = {"diskcache": "diskcache>=5.6.1", "jinja2": "jinja2>=2.11.3", "typing_extensions": "typing-extensions>=4.5.0"}
+
+
+def _ensure_light_deps() -> None:
+    missing = [spec for mod, spec in LIGHT_DEPS.items() if importlib.util.find_spec(mod) is None]
+    if not missing:
+        return
+    _log(f"Installing llama-cpp-python's small dependencies: {', '.join(missing)}")
+    _run_pip(["install", "--no-cache-dir"] + missing, capture=False)
+    importlib.invalidate_caches()
+
+
 def main() -> int:
+    _ensure_light_deps()
     if _already_vision_capable():
         _log("A vision-capable llama_cpp (Qwen3VLChatHandler or Qwen25VLChatHandler) is already installed. Nothing to do.")
         return 0
