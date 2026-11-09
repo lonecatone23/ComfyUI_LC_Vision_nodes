@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **CivitAI:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.6.24 · **12 nodes** + the **Vision Assistant** sidebar
+- **Version:** 1.6.25 · **12 nodes** + the **Vision Assistant** sidebar
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -81,6 +81,7 @@ Text-only rewrite pass over the same model handle. A vision model is still a per
 - **`style_tag`**, same shared list as Caption.
 - **MOSS BBOX:** base prompt into LC MOSS Layout Prompt's prompt box, its output into `prompt_text`. The output stays a layout: the scene and every box are enhanced on their own, box names and positions kept. Box captions stay short (about 60 tokens): longer, the subjects outgrow their boxes. Bypass the Layout Prompt and the base prompt comes through as a normal prompt. No base prompt: the scene stays empty and the model picks the setting.
 - **✨ boxes in LC Bounding Boxes (LC123):** an idea row on the box editor. With a picture, the vision model finds the subjects and writes their boxes, descriptions and palettes (Qwen3-VL 8B is the default: its own box grid is the editor's); without one, it plans the boxes from the idea. Signs with words become text boxes. Runs outside the queue, never during a render, and unloads when done.
+- **🌐 360 from card in LC H3 Story (LC_AV):** the vision model reads a place's room picture and writes the whole place out, all the way round, for the Story's ✨ 360 to draw from. Same model choice as ✨ boxes; it loads for the one answer and unloads.
 - **Think-leak retry:** if the output looks like leftover planning text instead of the actual rewritten prompt, one retry asks explicitly for just the final text.
 
 ## LC Vision Danbooru Caption 🏷️
