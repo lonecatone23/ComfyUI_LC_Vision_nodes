@@ -92,7 +92,7 @@ FILLER = (" in background", " in the background", " background", " landscape", "
           " texture", " atmosphere", " lighting")
 # style_tag -> real style tags for the tag outputs (added by the node, so meta tags the WD list leaves out still go in)
 STYLE_TAGS = {
-    "Realistic": "realistic, photorealistic", "Anime": "anime coloring, anime screencap", "Cartoon": "cartoon, flat color",
+    "Realistic": "realistic, photorealistic", "Human After All": "realistic, film grain", "Anime": "anime coloring, anime screencap", "Cartoon": "cartoon, flat color",
     "Cinematic": "cinematic lighting, depth of field, film grain", "Hentai": "anime coloring, nsfw", "Fantasy": "fantasy",
     "B&W": "monochrome, greyscale, high contrast, film grain", "Noir": "monochrome, greyscale, high contrast, film noir, dark",
     "Cyberpunk": "cyberpunk, neon lights, science fiction", "Illustration": "sketch, lineart, traditional media",
