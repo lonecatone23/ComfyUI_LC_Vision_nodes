@@ -11,13 +11,16 @@ from __future__ import annotations
 STYLE_TAG_DESCRIPTIONS = {
     "Realistic": "photorealistic, lifelike detail, natural lighting and true-to-life textures",
     # Human After All: real people, not retouched ones (the name nods to ta86's "Human after all" photoreal model)
-    "Human After All": ("a candid, unretouched photograph. Describe each person exactly as they are, including 2 to 4 of their "
-                  "real imperfections where you can see them: uneven, gapped or stained teeth, a lopsided smile or other "
-                  "asymmetry, wrinkles, blemishes, moles, scars, visible pores, redness, flyaway or grey hairs, worn or "
-                  "creased clothing. Keep colours natural and muted, never vivid or saturated, and mention the camera's own "
-                  "softness, depth of field and light grain. Never use beauty or render words: beautiful, flawless, "
-                  "perfect, stunning, radiant, glowing, smooth skin, model, editorial, photorealistic, lifelike, "
-                  "hyperrealistic, ultra-detailed, 8k, sharp focus"),
+    "Human After All": ("a candid, unretouched photograph. Describe each person exactly as they are. Keep skin and hair "
+                  "honest and lightly imperfect where you can see it: visible pores, fine lines, freckles, a mole, slight "
+                  "redness, a few flyaway or gray hairs. One or two small details per person are enough; never stack them. "
+                  "Describe clothing, jewelry and accessories plainly, as they are: a pair of earrings is a matching pair "
+                  "and fabric is at most lightly creased. Never call clothing, jewelry or teeth torn, frayed, ripped, "
+                  "stained, chipped, crooked, uneven, mismatched or misaligned unless that is obvious in the picture. "
+                  "Mention teeth only when the picture clearly shows them (or the prompt asks for them). Keep colors "
+                  "natural and muted, never vivid or saturated, and mention the camera's own softness, depth of field and "
+                  "light grain. Never use beauty or render words: beautiful, flawless, perfect, stunning, radiant, glowing, "
+                  "smooth skin, model, editorial, photorealistic, lifelike, hyperrealistic, ultra-detailed, 8k, sharp focus"),
     "Anime": "Japanese anime illustration style, cel-shaded coloring, expressive linework",
     "Cartoon": "stylized cartoon illustration, bold clean outlines, simplified flat shading",
     "Cinematic": "cinematic film still -- dramatic directional lighting, shallow depth of field, wide dynamic range",
