@@ -6,13 +6,101 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **CivitAI:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.6.28 · **12 nodes** + the **Vision Assistant** sidebar
+- **Version:** 1.6.30 · **12 nodes** + the **Vision Assistant** sidebar
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
 Companion pack to [ComfyUI_LC123_nodes](https://github.com/lonecatone23/ComfyUI_LC123_nodes), kept separate on purpose.
 
 Release history lives in **git tags**. This page describes the pack **as it is right now**, not a changelog.
+
+---
+
+## ✋ llama-cpp-python: manual install and troubleshooting
+
+LC Vision runs on the **vision build of `llama-cpp-python`** from the [JamePeng fork](https://github.com/JamePeng/llama-cpp-python). The one on PyPI can't load Qwen3-VL. On NVIDIA, `install.py` sets it up for you (ComfyUI-Manager runs it on install and update). Use this section when the Loader says `llama_cpp` is missing, or when you install by hand.
+
+### Find ComfyUI's Python first
+- 🛑 **Every command below runs with ComfyUI's own Python, by its full path.** A plain `python` or `pip` almost always installs into a different Python, and the Loader keeps saying `llama_cpp` is missing.
+- **Portable:** `ComfyUI_windows_portable\python_embeded\python.exe`
+- **Desktop app, venv or other installs:** the `python.exe` inside that install's `.venv\Scripts`, `venv\Scripts` or `python_env` folder (`venv/bin/python` on Linux).
+- 💡 Not sure? The Loader's error message prints the exact path ComfyUI runs on.
+- Check your Python and CUDA versions (Windows PowerShell, swap in your path):
+```powershell
+$py = "C:\ComfyUI_windows_portable\python_embeded\python.exe"
+& $py -c "import sys, torch; print(sys.version.split()[0], torch.version.cuda)"
+```
+  - Prints something like `3.12.10 13.0`: Python 3.12, CUDA 13.0. You need both for the wheel.
+
+### The easy way: run install.py yourself
+```powershell
+cd "C:\ComfyUI_windows_portable\ComfyUI\custom_nodes\ComfyUI_LC_Vision_nodes"
+& $py install.py
+```
+- It picks the right wheel, checks its sha256, installs it and tells you what it did. Restart ComfyUI after.
+- It does nothing if a working vision build is already there, so it's safe to run any time.
+
+### The manual way: pick the wheel yourself
+- Open the fork's [releases](https://github.com/JamePeng/llama-cpp-python/releases) and find **v0.3.49** (the version LC Vision is tested on) for your system.
+- Reading a wheel name, e.g. `llama_cpp_python-0.3.49+cu130-cp312-cp312-win_amd64.whl`:
+
+| Part | Means | Options |
+|---|---|---|
+| `cu130` | CUDA 13.0 | cu124, cu126, cu128, cu130, cu131 |
+| `cp312` | Python 3.12 | cp310 to cp314 |
+| `win_amd64` | Windows | `linux_x86_64` for Linux, `macosx_11_0_arm64` for Apple Silicon (Metal) |
+
+- **Pick the newest CUDA that isn't newer than your torch's CUDA.** Torch on 12.9 = `cu128`. Torch on 13.0 = `cu130`.
+- **Install it** (this is the cu130 / Python 3.12 / Windows one, swap in yours; the `+` in the link is written `%2B`):
+```powershell
+& $py -m pip uninstall -y llama-cpp-python
+& $py -m pip install --no-deps --force-reinstall --no-cache-dir "https://github.com/JamePeng/llama-cpp-python/releases/download/v0.3.49-cu130-win-20260831/llama_cpp_python-0.3.49%2Bcu130-cp312-cp312-win_amd64.whl"
+& $py -m pip install "diskcache>=5.6.1" "jinja2>=2.11.3" "typing-extensions>=4.5.0"
+```
+  - `--no-deps` keeps pip from touching your torch and numpy. The last line adds the three small packages llama-cpp-python needs.
+- **Check it:**
+```powershell
+& $py -c "import llama_cpp; from llama_cpp.llama_chat_format import Qwen3VLChatHandler; print('OK', llama_cpp.__version__)"
+```
+  - `OK 0.3.49` = done. Restart ComfyUI.
+
+### AMD, Intel and other non-NVIDIA GPUs
+- ⚠️ The prebuilt fork wheels are **CUDA-only** (plus Metal on macOS). Without an NVIDIA CUDA runtime they can't load, so `install.py` stops there and changes nothing.
+- You need to build the fork for your backend yourself, with a C++ toolchain (**Visual Studio Build Tools**, "Desktop development with C++", on Windows) and ComfyUI's own Python.
+- **Vulkan (AMD or Intel), Windows PowerShell:** install the Vulkan SDK first, then:
+```powershell
+& $py -m pip install --upgrade cmake ninja scikit-build-core
+$env:CMAKE_ARGS = "-DGGML_VULKAN=on"
+& $py -m pip install --no-build-isolation --force-reinstall --no-cache-dir "llama-cpp-python @ git+https://github.com/JamePeng/llama-cpp-python.git"
+& $py -c "import llama_cpp; print(llama_cpp.__version__)"
+```
+  - The last line should print a version. If it errors, the build went somewhere else or failed.
+- **AMD HIP / ROCm:** the fork's README has the steps (Windows needs the ROCm SDK environment variables set first; Linux uses `CMAKE_ARGS="-DGGML_HIP=ON"`).
+- **CPU only:** the same commands with no `CMAKE_ARGS`. It works, slowly.
+- *note:* I have only tested this pack on NVIDIA. These build steps come from the fork's own README, so treat them as a starting point.
+
+### Troubleshooting
+- **"llama_cpp is not installed, or the installed copy cannot load"**
+  - Nine times out of ten it went into the wrong Python. The error prints the right one: install with that path.
+  - Read the part in brackets: it's the real import error, and the lines below match most of them.
+- **"Missing 'jinja2'" (or diskcache, typing-extensions)**
+  - The wheel went in without its small dependencies. Run the exact command the error prints, then restart.
+- **"is the original llama-cpp-python build" or "has neither Qwen3VLChatHandler nor Qwen25VLChatHandler"**
+  - Another custom node pack installed the PyPI version over the fork. Run `install.py` again (it replaces it) or do the manual install above.
+  - 💡 If it keeps coming back after updates, another pack has `llama-cpp-python` in its requirements. Re-run `install.py` after updating that pack.
+- **Windows: "DLL load failed" or "Could not find module ... llama.dll"**
+  - The wheel's CUDA is newer than your NVIDIA driver. Update the driver (CUDA 13 wheels need a 580 or newer driver), or install the next lower `cu` wheel.
+  - Still failing: install the latest [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+- **Linux: works, but very slow / runs on CPU**
+  - The wheel's CUDA plugin can't find the CUDA 12 libraries. Run `install.py`: it tells you whether the plugin loads and prints the build command when it doesn't.
+  - LC Vision loads them from your venv's `nvidia` packages when torch is a CUDA 12 build. On a CUDA 13 torch, build against your own CUDA: `CMAKE_ARGS="-DGGML_CUDA=on" "/path/to/python" -m pip install "llama-cpp-python @ git+https://github.com/JamePeng/llama-cpp-python.git"`
+- **pip says "Requirement already satisfied" and nothing changes**
+  - Add `--force-reinstall --no-cache-dir`, as in the commands above.
+- **Build from source fails with "No CMAKE_C_COMPILER" or "CMake not found"**
+  - Install Visual Studio Build Tools with "Desktop development with C++" (Windows) or `build-essential` + `cmake` (Linux), then open a new terminal and try again.
+- **"Fatal Decode Error" or "llama_decode failed" while running**
+  - That's not an install problem. Run handles it by resetting and, if needed, reloading the model once. If it keeps happening, report it.
+- **Still stuck?** Open an issue with the Loader's full error line. It holds the real import error and the Python path, which is everything I need.
 
 ---
 
@@ -259,25 +347,7 @@ The GGUF-header reader in `lc_vision_loader.py` is the one piece that resembles 
 - **Restart ComfyUI.** The console should print the LC Vision load line (12 nodes). If it doesn't, the folder structure is off: check the folder again.
 - 💡 Hard-refresh your browser after any `web/` JS update going forward. It won't pick up changes on its own.
 
-### AMD, Intel and other non-NVIDIA GPUs
-- ⚠️ The prebuilt `JamePeng/llama-cpp-python` wheels are **CUDA-only** (plus Metal on macOS). Without an NVIDIA CUDA runtime they cannot be imported, so `install.py` stops there and changes nothing instead of installing a wheel that can't load.
-- You need to build the fork for your backend yourself, with a C++ toolchain (Visual Studio Build Tools on Windows) and **ComfyUI's own Python**.
-- ✋ **Use ComfyUI's Python, by its full path.** A plain `python -m pip` usually installs into a different Python, and the Loader keeps saying `llama_cpp` is missing. The Loader's error message prints the exact path ComfyUI runs on. Typical ones:
-  - Portable: `ComfyUI_windows_portable\python_embeded\python.exe`
-  - Desktop app, venv or other installs: the `python.exe` inside that install's `.venv`, `venv` or `python_env` folder
-- **Vulkan (AMD or Intel), Windows PowerShell:** install the Vulkan SDK first, then (swap in your path):
-```powershell
-$py = "N:\ComfyUI\python_env\python.exe"
-& $py -m pip install --upgrade cmake ninja scikit-build-core
-$env:CMAKE_ARGS = "-DGGML_VULKAN=on"
-& $py -m pip install --no-build-isolation --force-reinstall --no-cache-dir "llama-cpp-python @ git+https://github.com/JamePeng/llama-cpp-python.git"
-& $py -c "import llama_cpp; print(llama_cpp.__version__)"
-```
-  - The last line should print a version. If it errors, the build went somewhere else or failed.
-- **AMD HIP / ROCm:** the fork's README has the steps (Windows needs the ROCm SDK environment variables set first; Linux uses `CMAKE_ARGS="-DGGML_HIP=ON"`). Same rule: ComfyUI's Python by its full path.
-- **CPU only:** the same commands with no `CMAKE_ARGS`.
-- *note:* I have only tested this pack on NVIDIA. These build steps come from the fork's own README, so treat them as a starting point.
-- If the Loader still says `llama_cpp` is missing, its error shows the real import error and the Python ComfyUI runs on. Send that line with any bug report.
+- **Not NVIDIA, or the Loader says `llama_cpp` is missing?** See [llama-cpp-python: manual install and troubleshooting](#-llama-cpp-python-manual-install-and-troubleshooting) at the top.
 
 ## License
 
