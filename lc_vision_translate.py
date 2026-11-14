@@ -20,7 +20,7 @@ import gc
 import re
 import threading
 
-from .lc_vision_loader import _discover_vision_models, gguf_architecture, linux_cuda_plugin, strip_thinking
+from .lc_vision_loader import _discover_vision_models, gguf_architecture, linux_cuda_plugin, new_llama, strip_thinking
 
 _LOCK = threading.Lock()
 _PH = "⟦{}⟧"  # ⟦0⟧
@@ -135,8 +135,6 @@ def _llm(requested_model):
     """Load a model the way the Vision Assistant chat picks one: what fits this card (half of it, 11 GB at most), after
     ComfyUI is asked to make room; nothing fits = the smallest model on the CPU (under 1 GB of VRAM, slow but safe).
     The old way loaded the biggest 8B at 16k on the GPU whatever the card, about 10 - 11 GB."""
-    from llama_cpp import Llama
-
     from .lc_vision_assistant import _free as _free_chat, _llama_kwargs, _make_room, _plan_for
 
     _free_chat()  # an idle chat model would sit next to this one
@@ -157,7 +155,7 @@ def _llm(requested_model):
     print(f"[LC Vision] translator: {plan['name']} at {plan['ctx'] // 1024}k context on the "
           f"{'GPU, about ' + str(plan['need_gb']) + ' GB' if gpu else 'CPU'} ({plan['vram_gb']} GB card)")
     qwen3 = "qwen3" in (gguf_architecture(plan["path"]) or "").lower()
-    return Llama(**_llama_kwargs(plan["path"], plan["ctx"], gpu)), plan["name"], qwen3
+    return new_llama(**_llama_kwargs(plan["path"], plan["ctx"], gpu)), plan["name"], qwen3
 
 
 def _chunks(text: str, count) -> list[str]:

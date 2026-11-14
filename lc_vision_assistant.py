@@ -22,7 +22,7 @@ import re
 import threading
 import time
 
-from .lc_vision_loader import _discover_vision_models, gguf_architecture, linux_cuda_plugin, llama_missing_hint, strip_thinking
+from .lc_vision_loader import _discover_vision_models, gguf_architecture, linux_cuda_plugin, llama_missing_hint, new_llama, strip_thinking
 
 IDLE_UNLOAD = 60  # seconds: the chat model gives its VRAM back a minute after the last answer
 _LOCK = threading.Lock()
@@ -280,8 +280,6 @@ def _load(requested):
         return _STATE["llm"]
     _free()
     _make_room(plan["need_gb"])
-    from llama_cpp import Llama
-
     try:
         import torch
 
@@ -289,7 +287,7 @@ def _load(requested):
     except Exception:
         gpu = 0
     print(f"[Vision Assistant] loading {name} for chat")
-    _STATE["llm"] = Llama(**_llama_kwargs(path, ctx, gpu if plan["mode"] == "gpu" else 0))
+    _STATE["llm"] = new_llama(**_llama_kwargs(path, ctx, gpu if plan["mode"] == "gpu" else 0))
     _STATE["name"] = name
     _STATE["ctx"] = ctx
     _STATE["mode"] = plan["mode"]

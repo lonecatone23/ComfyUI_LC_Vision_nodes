@@ -113,6 +113,120 @@ def linux_cuda_plugin() -> str:
     return _cuda_plugin_state
 
 
+def _llama_lib_dir() -> Optional[str]:
+    """llama_cpp's own lib folder (its ggml / llama libraries and backend plugins), found without importing it."""
+    import importlib.util
+
+    try:
+        spec = importlib.util.find_spec("llama_cpp")
+    except Exception:
+        return None
+    if not spec or not spec.origin:
+        return None
+    return os.path.join(os.path.dirname(spec.origin), "lib")
+
+
+_ggml_preloaded: list = []
+
+
+def preload_own_ggml() -> None:
+    """Windows, at ComfyUI startup: load llama_cpp's own ggml-base.dll and ggml.dll by full path before any other pack
+    can bring its own copy. Windows hands an already-loaded DLL to anything that asks for that name, so when another
+    pack loads its ggml first, the fork's backend plugins bind to it, all fail, and every model load ends with
+    "backend registry count: 0". Set LC_VISION_NO_GGML_PRELOAD=1 to skip this."""
+    if sys.platform != "win32" or os.environ.get("LC_VISION_NO_GGML_PRELOAD") or "llama_cpp" in sys.modules:
+        return
+    lib = _llama_lib_dir()
+    if not lib or not os.path.isdir(lib):
+        return
+    import ctypes
+
+    for name in ("ggml-base.dll", "ggml.dll"):
+        path = os.path.join(lib, name)
+        if not os.path.exists(path):
+            return
+        try:
+            ctypes.CDLL(path)
+            _ggml_preloaded.append(name)
+        except OSError:
+            return
+
+
+def _loaded_ggml_libs() -> list:
+    """Full paths of every ggml / llama library loaded in this process."""
+    names = ("ggml", "llama", "libggml", "libllama")
+    paths = []
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+
+            k32, psapi = ctypes.WinDLL("kernel32"), ctypes.WinDLL("psapi")
+            k32.GetCurrentProcess.restype = wintypes.HANDLE
+            k32.GetModuleFileNameW.argtypes = [wintypes.HMODULE, wintypes.LPWSTR, wintypes.DWORD]
+            psapi.EnumProcessModules.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.HMODULE), wintypes.DWORD,
+                                                 ctypes.POINTER(wintypes.DWORD)]
+            mods, need = (wintypes.HMODULE * 4096)(), wintypes.DWORD()
+            if psapi.EnumProcessModules(k32.GetCurrentProcess(), mods, ctypes.sizeof(mods), ctypes.byref(need)):
+                for h in mods[:min(need.value // ctypes.sizeof(wintypes.HMODULE), 4096)]:
+                    buf = ctypes.create_unicode_buffer(1024)
+                    if k32.GetModuleFileNameW(h, buf, 1024):
+                        paths.append(buf.value)
+        elif os.path.exists("/proc/self/maps"):
+            with open("/proc/self/maps", encoding="utf-8", errors="replace") as f:
+                paths = list(dict.fromkeys(line.split(None, 5)[-1].strip() for line in f if "/" in line))
+    except Exception:
+        return []
+    return [p for p in paths if os.path.basename(p).lower().startswith(names)]
+
+
+def llama_load_hint(exc: BaseException) -> str:
+    """When a model fails because llama.cpp has no backends at all (count 0), why, and which other pack's ggml is in
+    the way. Empty for any other failure. (The count is 0 until the first Llama() loads the plugins, so it only means
+    something together with llama's own "Failed to load model".)"""
+    if "Failed to load model" not in str(exc) and "no backends" not in str(exc):
+        return ""
+    try:
+        from llama_cpp._ggml import ggml_backend_reg_count
+
+        if int(ggml_backend_reg_count()) != 0:
+            return ""
+    except Exception:
+        if "no backends" not in str(exc):
+            return ""
+    lib = _llama_lib_dir() or "llama_cpp/lib"
+    own = os.path.normcase(os.path.abspath(lib))
+    foreign = [p for p in _loaded_ggml_libs() if os.path.normcase(os.path.dirname(os.path.abspath(p))) != own]
+    msg = (f"[LC Vision] llama.cpp has no backends loaded (registry count 0), so no model can load: its CPU and CUDA "
+           f"plugins in {lib} all failed to load.")
+    if foreign:
+        msg += ("\nAnother copy of ggml / llama.cpp is already loaded in this ComfyUI by a different custom node pack, "
+                "and the plugins bound to it instead:\n  " + "\n  ".join(foreign) +
+                "\nDisable the pack that owns that folder (or ask its author to use the shared llama-cpp-python), "
+                "then restart ComfyUI.")
+    else:
+        msg += ("\nNo other copy of ggml is loaded, so the plugins themselves would not load: install the latest "
+                "Microsoft Visual C++ Redistributable (x64), or run this pack's install.py again, then restart ComfyUI.")
+    return msg
+
+
+def new_llama(**kwargs):
+    """Llama(**kwargs) with a clear error when llama.cpp has no backends."""
+    from llama_cpp import Llama
+
+    try:
+        return Llama(**kwargs)
+    except Exception as exc:
+        hint = llama_load_hint(exc)
+        if hint:
+            print(hint)
+            raise RuntimeError(hint) from exc
+        raise
+
+
+preload_own_ggml()
+
+
 NODE_ID = "LCVisionLoader"
 NODE_DISPLAY_NAME = "LC Vision Loader 🔬"
 MODEL_TYPE = "LC_VISION_MODEL"
@@ -556,7 +670,7 @@ def build_llama(params: LCVisionBuildParams) -> tuple[Any, Any]:
         extra["flash_attn"] = True
     if "type_k" in sig and "type_v" in sig:
         extra["type_k"] = extra["type_v"] = 8  # GGML_TYPE_Q8_0
-    llm = Llama(
+    llm = new_llama(
         model_path=params.model_path,
         chat_handler=chat_handler,
         n_ctx=params.n_ctx,

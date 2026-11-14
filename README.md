@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **CivitAI:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.6.30 · **12 nodes** + the **Vision Assistant** sidebar
+- **Version:** 1.6.31 · **12 nodes** + the **Vision Assistant** sidebar
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -98,6 +98,9 @@ $env:CMAKE_ARGS = "-DGGML_VULKAN=on"
   - Add `--force-reinstall --no-cache-dir`, as in the commands above.
 - **Build from source fails with "No CMAKE_C_COMPILER" or "CMake not found"**
   - Install Visual Studio Build Tools with "Desktop development with C++" (Windows) or `build-essential` + `cmake` (Linux), then open a new terminal and try again.
+- **"backend registry count: 0" or "no backends are loaded"**
+  - Another custom node pack loaded its own copy of llama.cpp (ggml) first, and the fork's plugins bound to it. The error names the folder that copy came from: disable that pack, or ask its author to use the shared llama-cpp-python.
+  - 💡 LC Vision loads its own copy at startup to stay ahead of this. If that ever trips up another pack, set `LC_VISION_NO_GGML_PRELOAD=1` to switch it off.
 - **"Fatal Decode Error" or "llama_decode failed" while running**
   - That's not an install problem. Run handles it by resetting and, if needed, reloading the model once. If it keeps happening, report it.
 - **Still stuck?** Open an issue with the Loader's full error line. It holds the real import error and the Python path, which is everything I need.
