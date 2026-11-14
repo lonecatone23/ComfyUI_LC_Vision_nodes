@@ -130,24 +130,39 @@ _ggml_preloaded: list = []
 
 
 def preload_own_ggml() -> None:
-    """Windows, at ComfyUI startup: load llama_cpp's own ggml-base.dll and ggml.dll by full path before any other pack
-    can bring its own copy. Windows hands an already-loaded DLL to anything that asks for that name, so when another
-    pack loads its ggml first, the fork's backend plugins bind to it, all fail, and every model load ends with
+    """At ComfyUI startup: load llama_cpp's own ggml-base and ggml libraries by full path before anything else can
+    bring its own copy. Windows hands an already-loaded DLL to anything that asks for that name, and Linux matches
+    by soname (libggml.so.0), so when another pack's ggml, or a system package's (/usr/lib/libggml.so.0 from
+    pacman / apt), gets in first, the fork's backend plugins bind to it, all fail, and every model load ends with
     "backend registry count: 0". Set LC_VISION_NO_GGML_PRELOAD=1 to skip this."""
-    if sys.platform != "win32" or os.environ.get("LC_VISION_NO_GGML_PRELOAD") or "llama_cpp" in sys.modules:
+    if sys.platform not in ("win32", "linux") or os.environ.get("LC_VISION_NO_GGML_PRELOAD") or "llama_cpp" in sys.modules:
         return
     lib = _llama_lib_dir()
     if not lib or not os.path.isdir(lib):
         return
     import ctypes
 
-    for name in ("ggml-base.dll", "ggml.dll"):
-        path = os.path.join(lib, name)
-        if not os.path.exists(path):
+    if sys.platform == "win32":
+        for name in ("ggml-base.dll", "ggml.dll"):
+            path = os.path.join(lib, name)
+            if not os.path.exists(path):
+                return
+            try:
+                ctypes.CDLL(path)
+                _ggml_preloaded.append(name)
+            except OSError:
+                return
+        return
+    import glob
+
+    for stem in ("libggml-base.so", "libggml.so"):
+        # the soname file the plugins ask for (libggml.so.0) first, then the plain or fully versioned one
+        hits = sorted(glob.glob(os.path.join(lib, stem + "*")), key=lambda p: (not p.endswith(stem + ".0"), len(p)))
+        if not hits:
             return
         try:
-            ctypes.CDLL(path)
-            _ggml_preloaded.append(name)
+            ctypes.CDLL(hits[0], mode=ctypes.RTLD_GLOBAL)
+            _ggml_preloaded.append(os.path.basename(hits[0]))
         except OSError:
             return
 
@@ -200,13 +215,18 @@ def llama_load_hint(exc: BaseException) -> str:
     msg = (f"[LC Vision] llama.cpp has no backends loaded (registry count 0), so no model can load: its CPU and CUDA "
            f"plugins in {lib} all failed to load.")
     if foreign:
-        msg += ("\nAnother copy of ggml / llama.cpp is already loaded in this ComfyUI by a different custom node pack, "
-                "and the plugins bound to it instead:\n  " + "\n  ".join(foreign) +
-                "\nDisable the pack that owns that folder (or ask its author to use the shared llama-cpp-python), "
-                "then restart ComfyUI.")
+        msg += ("\nAnother copy of ggml / llama.cpp is already loaded in this ComfyUI (another custom node pack, or a "
+                "system package), and the plugins bound to it instead:\n  " + "\n  ".join(foreign))
+        if sys.platform == "win32":
+            msg += ("\nDisable the pack that owns that folder (or ask its author to use the shared llama-cpp-python), "
+                    "then restart ComfyUI.")
+        else:
+            msg += (f"\nIf it is a system package (/usr/lib), start ComfyUI with LD_LIBRARY_PATH=\"{lib}\" in front, or "
+                    "remove the system ggml / llama.cpp package. If it is another pack, disable it. Then restart ComfyUI.")
     else:
-        msg += ("\nNo other copy of ggml is loaded, so the plugins themselves would not load: install the latest "
-                "Microsoft Visual C++ Redistributable (x64), or run this pack's install.py again, then restart ComfyUI.")
+        fix = ("install the latest Microsoft Visual C++ Redistributable (x64), or run this pack's install.py again"
+               if sys.platform == "win32" else "run this pack's install.py again")
+        msg += f"\nNo other copy of ggml is loaded, so the plugins themselves would not load: {fix}, then restart ComfyUI."
     return msg
 
 

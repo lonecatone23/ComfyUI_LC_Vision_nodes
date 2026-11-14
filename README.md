@@ -100,6 +100,7 @@ $env:CMAKE_ARGS = "-DGGML_VULKAN=on"
   - Install Visual Studio Build Tools with "Desktop development with C++" (Windows) or `build-essential` + `cmake` (Linux), then open a new terminal and try again.
 - **"backend registry count: 0" or "no backends are loaded"**
   - Another custom node pack loaded its own copy of llama.cpp (ggml) first, and the fork's plugins bound to it. The error names the folder that copy came from: disable that pack, or ask its author to use the shared llama-cpp-python.
+  - **Linux:** a system ggml package (`/usr/lib/libggml.so`, from pacman / apt) does the same. Remove that package, or start ComfyUI with `LD_LIBRARY_PATH` pointing at the venv's `llama_cpp/lib` folder first.
   - 💡 LC Vision loads its own copy at startup to stay ahead of this. If that ever trips up another pack, set `LC_VISION_NO_GGML_PRELOAD=1` to switch it off.
 - **"Fatal Decode Error" or "llama_decode failed" while running**
   - That's not an install problem. Run handles it by resetting and, if needed, reloading the model once. If it keeps happening, report it.
