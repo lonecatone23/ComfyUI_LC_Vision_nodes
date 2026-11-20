@@ -421,7 +421,9 @@ def _linux_cuda_check() -> None:
 
     def _try() -> str:
         try:
-            for base in ("libggml-base.so.0", "libggml-base.so"):
+            # the plain name first: it is the file llama-cpp-python opens. pip installs .so and .so.0 as two
+            # separate files, and loading both maps two ggml copies, so the plugin registers with the wrong one (#6)
+            for base in ("libggml-base.so", "libggml-base.so.0"):
                 if os.path.exists(os.path.join(lib, base)):
                     ctypes.CDLL(os.path.join(lib, base), mode=ctypes.RTLD_GLOBAL)
                     break

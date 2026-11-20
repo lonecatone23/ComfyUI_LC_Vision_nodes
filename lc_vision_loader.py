@@ -76,7 +76,9 @@ def linux_cuda_plugin() -> str:
 
     def _try() -> str:
         try:
-            for base in ("libggml-base.so.0", "libggml-base.so"):
+            # the plain name first: it is the file llama-cpp-python opens. pip installs .so and .so.0 as two
+            # separate files, and loading both maps two ggml copies, so the plugin registers with the wrong one (#6)
+            for base in ("libggml-base.so", "libggml-base.so.0"):
                 if os.path.exists(os.path.join(lib, base)):
                     ctypes.CDLL(os.path.join(lib, base), mode=ctypes.RTLD_GLOBAL)
                     break
@@ -156,8 +158,10 @@ def preload_own_ggml() -> None:
     import glob
 
     for stem in ("libggml-base.so", "libggml.so"):
-        # the soname file the plugins ask for (libggml.so.0) first, then the plain or fully versioned one
-        hits = sorted(glob.glob(os.path.join(lib, stem + "*")), key=lambda p: (not p.endswith(stem + ".0"), len(p)))
+        # the plain name first: it is the exact file llama-cpp-python opens. pip can't install symlinks, so .so, .so.0
+        # and .so.0.x.y are separate files; preloading .so.0 mapped a second ggml with its own empty backend registry
+        # (#6). The plain file's soname is still libggml-base.so.0, so the plugins' NEEDED entry finds this copy.
+        hits = sorted(glob.glob(os.path.join(lib, stem + "*")), key=lambda p: (not p.endswith(stem), len(p)))
         if not hits:
             return
         try:
