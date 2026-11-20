@@ -176,6 +176,33 @@ Text-only rewrite pass over the same model handle. A vision model is still a per
 - **🌐 360 from card in LC H3 Story (LC_AV):** the vision model reads a place's room picture and writes the whole place out, all the way round, for the Story's ✨ 360 to draw from. Same model choice as ✨ boxes; it loads for the one answer and unloads.
 - **Think-leak retry:** if the output looks like leftover planning text instead of the actual rewritten prompt, one retry asks explicitly for just the final text.
 
+## LC Vision Smart Prompt Batch 🎓
+
+A wildcard processor with a brain. One base prompt, pick what changes, and it writes a whole batch of new prompts.
+
+- **vary:** what changes, from the 🎯 **What changes** list or typed (Location, Time of day, Hair color, Outfit, Pose, Camera angle, etc.). Everything you didn't pick stays word for word.
+- Details tied to the old version adapt with it: change the place and the railing, the string lights and the skyline go too.
+- **count:** prompts per run, one picture each. New seed = new batch, same seed = same batch.
+- **variation:** how much each new part gets to say. 60 is a quick swap, 150 and up a rich new description.
+- **enhance_base / style_tag / max_tokens:** rewrite the base once (more detail, a style, a length) and keep it through every seed. 🗑 **Clear kept base** starts over.
+- **removed** shows what changed: `[brackets]` = the picked parts, `{braces}` = the details that adapt. **prompt_list** is the whole batch as one text.
+- 💡 Starting from a picture: caption it first (with **LC Vision Filter** for only the parts you want), then paste it in.
+
+## LC Vision Filter 🧹
+
+Sits between **LC Vision Loader** and **Caption** / **Prompt Enhancer** and decides what they write about.
+
+- **describe:** only these parts get written (Person, Outfit, Pose, etc.). **leave_out:** these never do (Location, Background, etc.). Both have a ✓ list.
+- Each part takes in what belongs to it: Location also drops the railings, lights and signs.
+- 💡 Caption **Person, Outfit** only, then vary **Location** in Smart Prompt Batch: no old place left to clash with the new one.
+
+## LC Image with Prompt 🖼️
+
+A preview that keeps each picture's prompt. Takes a whole Smart Prompt Batch run.
+
+- Double-click the node (or 🔍 **View with prompt**): the prompt sits next to the picture. Click it to copy.
+- Arrows step through the batch, Esc closes.
+
 ## LC Vision Danbooru Caption 🏷️
 
 Prompts built for **SDXL, Pony and Illustrious**. One image in, or a rough idea in the prompt box, out comes a prompt short enough for SDXL.
@@ -330,6 +357,7 @@ A sidebar tab (the LC logo on the left) that reads the open workflow for you. Wo
 
 In `workflows/`:
 - **LC Vision LLM Modules**: Caption, Prompt Enhancer, Moviemaker and Reviewer, wired up and ready. Drop your own model and references in.
+- **LC Vision Smart Prompt Batch**: picture or prompt in, a batch of variations out (Filter, Caption, Smart Prompt Batch, Image with Prompt), with a guided tour.
 
 ## Licensing note
 

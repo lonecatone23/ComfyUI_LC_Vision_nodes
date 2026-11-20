@@ -21,6 +21,7 @@ import io
 import numpy as np
 from PIL import Image
 
+from .lc_vision_filter import filter_note, vision_filter
 from .lc_vision_generate import budget_line, generate_with_recovery, release, trim_to_sentence
 from .lc_vision_loader import LCVisionModel, MODEL_TYPE, strip_thinking
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_content
@@ -169,6 +170,8 @@ class LCVisionCaption:
                     content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{all_frames[i]}"}})
 
         content = apply_style_tag_to_content(content, style_tag)
+        if filter_note(vision_model):  # LC Vision Filter: said last so it beats the request
+            content.append({"type": "text", "text": filter_note(vision_model)})
 
         effective_user_content = content
         if getattr(vision_model, "is_qwen3_family", False):
@@ -180,7 +183,7 @@ class LCVisionCaption:
             effective_user_content = [{"type": "text", "text": "/no_think"}] + content
 
         messages = [
-            {"role": "system", "content": (system_prompt or "") + budget_line(max_tokens)},
+            {"role": "system", "content": (system_prompt or "") + vision_filter(vision_model) + budget_line(max_tokens)},
             {"role": "user", "content": effective_user_content},
         ]
 

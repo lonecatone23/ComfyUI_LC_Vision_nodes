@@ -1159,10 +1159,13 @@ export async function checkCommon() {
     }
     if (cfg && cfg.value > 12) {
       cards.push({ level: 1, title: `cfg ${cfg.value} is very high`, nodeId: where(cfg.node),
-        text: "A cfg that high burns colours and adds harsh contrast. Most models want 3 to 8 (turbo and flow models 1 to 2).", actions: [] });
+        text: "A cfg that high burns colors and adds harsh contrast. Most models want 3 to 8 (turbo and flow models 1 to 2).", actions: [] });
     }
   }
-  // detailers that can't find or change anything
+  // detailers that can't find or change anything. Krea 2 detailers run low on purpose (0.1 to 0.35): higher denoise
+  // brings blemishes back and ruins the skin, so only a near-zero denoise is flagged there.
+  const krea = isKrea(mp, fileText);
+  const denLow = krea ? 0.05 : 0.12;
   for (const n of allNodes()) {
     if (!active(n) || !DETAILERS.test(n.type)) continue;
     const prompt = String(valueOf(n, "prompt") ?? valueOf(n, "detect_prompt") ?? "x").trim();
@@ -1172,7 +1175,8 @@ export async function checkCommon() {
     const why = [];
     if (!prompt) why.push("its prompt (what to look for) is empty, so it finds nothing");
     if (thr !== undefined && thr > 0.75) why.push(`threshold ${thr} is strict: it only accepts a near-perfect match, so it often finds nothing (0.5 to start)`);
-    if (den !== undefined && den < 0.12) why.push(`denoise ${den} is so low the redraw changes almost nothing (faces 0.3, hands 0.4 to 0.5)`);
+    if (den !== undefined && den < denLow) why.push(krea ? `denoise ${den} is so low the redraw changes nothing (Krea 2 detailers work at 0.1 to 0.35; higher brings blemishes back)`
+      : `denoise ${den} is so low the redraw changes almost nothing (faces 0.3, hands 0.4 to 0.5)`);
     if (den !== undefined && den > 0.7) why.push(`denoise ${den} redraws from scratch: a different face or extra fingers (keep it under 0.6)`);
     if (blend !== undefined && blend < 0.25) why.push(`blend ${blend} pastes back almost none of the fix`);
     if (why.length) cards.push({ level: 1, title: `${label(n)} settings look off`, nodeId: where(n), text: why.map((w) => `- ${w}`).join("\n"), actions: [] });
@@ -1195,6 +1199,10 @@ export async function checkCommon() {
     }
   }
   return cards;
+}
+
+function isKrea(mp, fileText) {
+  return /krea 2/i.test(mp?.p?.name || "") || /krea.?2|krealism/i.test(fileText || "");
 }
 
 /** Plain facts behind a complaint ("my image is blurry"), for the chat: the settings that cause it, with a verdict. */
@@ -1239,10 +1247,13 @@ export async function symptomReport(question) {
   if (asks.detailer) {
     const ds = allNodes().filter((n) => DETAILERS.test(n.type));
     if (!ds.length) fact("no detailer node in this workflow", true);
+    const krea = isKrea(mp, base(run.file).toLowerCase());
+    const denLow = krea ? 0.05 : 0.12;
+    if (krea) fact("Krea 2: detailer denoise 0.1 to 0.35 is normal and intended (higher brings blemishes back), never call it wrong", false);
     for (const n of ds) {
       const bits = ["prompt", "threshold", "denoise", "blend"].map((k) => [k, valueOf(n, k)]).filter(([, v]) => v !== undefined).map(([k, v]) => `${k} ${typeof v === "string" ? JSON.stringify(v.trim()) : v}`);
       const den = num(valueOf(n, "denoise")), thr = num(valueOf(n, "threshold"));
-      fact(`${label(n)} is ${active(n) ? "ON" : "OFF (bypassed)"}: ${bits.join(", ")}`, !active(n) || (den !== undefined && (den < 0.12 || den > 0.7)) || (thr !== undefined && thr > 0.75) || String(valueOf(n, "prompt") ?? "x").trim() === "");
+      fact(`${label(n)} is ${active(n) ? "ON" : "OFF (bypassed)"}: ${bits.join(", ")}`, !active(n) || (den !== undefined && (den < denLow || den > 0.7)) || (thr !== undefined && thr > 0.75) || String(valueOf(n, "prompt") ?? "x").trim() === "");
     }
   }
   return out;

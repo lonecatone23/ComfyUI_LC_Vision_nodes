@@ -61,6 +61,9 @@ _load("lc_vision_gated")
 _load("lc_vision_movie_routes")
 _load("lc_vision_boxes")
 _load("lc_vision_place")
+_load("lc_vision_prompt_batch")
+_load("lc_vision_image_prompt")
+_load("lc_vision_filter")
 
 WEB_DIRECTORY = "./web"
 

@@ -20,6 +20,7 @@ from pathlib import Path
 
 from .lc_vision_caption import _image_input_to_base64_list
 from .lc_vision_generate import budget_line, generate_with_recovery, release, trim_to_sentence
+from .lc_vision_filter import filter_note, vision_filter
 from .lc_vision_loader import LCVisionModel, MODEL_TYPE, strip_thinking
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_text
 
@@ -169,13 +170,14 @@ class LCVisionPromptEnhancer:
             if not system_prompt:
                 raise ValueError(f"[LC Vision] Preset '{preset}' not found in lc_vision_presets.json.")
 
+        system_prompt += vision_filter(vision_model)  # LC Vision Filter: only / never these parts
         data = _parse_layout(prompt_text)  # LC MOSS Layout Prompt wired in: the base prompt is its scene, the boxes stay
         if data is not None:
             return (self._enhance_layout(vision_model, data, system_prompt, style_tag, max_tokens, temperature, top_p,
                                          repetition_penalty, seed),)
 
         user_text = prompt_text.strip() or "Describe a scene vividly."
-        user_text = apply_style_tag_to_text(user_text, style_tag)
+        user_text = apply_style_tag_to_text(user_text, style_tag) + filter_note(vision_model)
         result = self._generate(vision_model, system_prompt, user_text, max_tokens, temperature, top_p, repetition_penalty, seed,
                                 images=(image_1, image_2))
 

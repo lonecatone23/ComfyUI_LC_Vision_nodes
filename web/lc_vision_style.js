@@ -28,6 +28,8 @@ const TYPES = new Set([
   "LCVisionMoviemaker",
   "LCVisionDanbooruCaption",
   "LCVisionDirector",
+  "LCVisionPromptBatch",
+  "LCVisionFilter",
 ]);
 
 // launch color only (they keep their own size): the Shot List reads best black
@@ -37,6 +39,7 @@ const COLOR_ONLY = {
   LCVisionStoryboardBuilder: [COLOR, BGCOLOR],
   LCVisionStoryboardSave: [COLOR, BGCOLOR],
   LCVisionStoryboardSheet: [COLOR, BGCOLOR],
+  LCVisionImageWithPrompt: [COLOR, BGCOLOR],
 };
 
 app.registerExtension({
