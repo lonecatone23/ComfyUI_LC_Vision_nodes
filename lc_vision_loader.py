@@ -434,6 +434,11 @@ def _discover_vision_models() -> dict[str, tuple[str, str]]:
 DOWNLOAD_LABEL_PREFIX = "⬇ Download: "
 
 CURATED_DOWNLOADS: dict[str, dict[str, str]] = {
+    f"{DOWNLOAD_LABEL_PREFIX}Qwen3-VL-4B-abliterated (Q4_K_M, ~3.3GB total)": {
+        "repo_id": "mradermacher/Qwen3-VL-4B-Instruct-c_abliterated-v2-GGUF",
+        "model_file": "Qwen3-VL-4B-Instruct-c_abliterated-v2.Q4_K_M.gguf",
+        "mmproj_file": "Qwen3-VL-4B-Instruct-c_abliterated-v2.mmproj-f16.gguf",
+    },
     f"{DOWNLOAD_LABEL_PREFIX}Qwen3-VL-4B-abliterated (Q8_0, ~5.1GB total)": {
         "repo_id": "mradermacher/Qwen3-VL-4B-Instruct-c_abliterated-v2-GGUF",
         "model_file": "Qwen3-VL-4B-Instruct-c_abliterated-v2.Q8_0.gguf",
@@ -471,6 +476,42 @@ CURATED_DOWNLOADS: dict[str, dict[str, str]] = {
         "mmproj_file": "Huihui-Qwen3.5-9B-abliterated.mmproj-f16.gguf",
     },
 }
+
+
+def _curated_for_name(model_name: str):
+    """The curated (label, entry) whose model file is this plain name ('...Q4_K_M' or '...Q4_K_M.gguf'), else None.
+    A workflow saved with the file name of a model on the download list then downloads what is missing."""
+    name = model_name if model_name.lower().endswith(".gguf") else model_name + ".gguf"
+    for label, entry in CURATED_DOWNLOADS.items():
+        if entry["model_file"] == name:
+            return label, entry
+    return None
+
+
+def _models_without_mmproj() -> dict[str, str]:
+    """{display_name: model_path} for model .gguf files whose folder has no mmproj .gguf (the Loader can't list
+    them: a vision model needs its projector next to it)."""
+    out: dict[str, str] = {}
+    try:
+        base_dirs = list(folder_paths.get_folder_paths(LLM_FOLDER_KEY))
+    except Exception:
+        base_dirs = [os.path.join(folder_paths.models_dir, "LLM")]
+    for base_dir in base_dirs:
+        if not os.path.isdir(base_dir):
+            continue
+        for root, _dirs, files in os.walk(base_dir):
+            ggufs = [f for f in files if f.lower().endswith(".gguf")]
+            if any("mmproj" in f.lower() for f in ggufs):
+                continue
+            for f in ggufs:
+                out.setdefault(f[:-5], os.path.join(root, f))
+    return out
+
+
+def _missing_mmproj_message(model_name: str, model_path: str) -> str:
+    return (f"LC Vision found '{os.path.basename(model_path)}' but no mmproj (its vision projector) next to it, in "
+            f"{os.path.dirname(model_path)}. A vision model needs both files in the same folder: get the mmproj .gguf "
+            "from the same download page (its name has 'mmproj' in it) and put it there, or pick a ⬇ Download entry.")
 
 
 def _download_label(key: str) -> tuple[str, str]:
@@ -517,6 +558,7 @@ def _curated_target_dir() -> str:
 # every curated download is pinned to one commit of its repo and checked against the file's sha256 afterwards
 PINNED: dict[str, tuple[str, dict[str, str]]] = {
     "mradermacher/Qwen3-VL-4B-Instruct-c_abliterated-v2-GGUF": ("659915fa666b816ece4e18128103dd013322be53", {
+        "Qwen3-VL-4B-Instruct-c_abliterated-v2.Q4_K_M.gguf": "ff9f3187189cb8ce385785c84da8843aa6cd1b3b308bc330716166354dc8f990",
         "Qwen3-VL-4B-Instruct-c_abliterated-v2.Q8_0.gguf": "68928bf53036bdd6b335fadcbe83e320fadbace1010466ca295475fb6cb8d992",
         "Qwen3-VL-4B-Instruct-c_abliterated-v2.f16.gguf": "01e12fe9358176c2d0096d778c35f035fc615fbd8c284851f3148d77a3c9d39c",
         "Qwen3-VL-4B-Instruct-c_abliterated-v2.mmproj-f16.gguf": "11ac51033acba21b650cb9724f27180a4d2abbca2784fba563e8b80f4c64ba0c",
@@ -827,9 +869,13 @@ class LCVisionLoader:
             return f"n_ctx '{n_ctx}' is not a number."
         # A 'Download:' entry drops out of the list once its file is on disk, but the
         # node that downloaded it still holds that label: keep accepting it.
-        if model_name in CURATED_DOWNLOADS or model_name in _discover_vision_models():
+        if model_name in CURATED_DOWNLOADS or model_name in _discover_vision_models() or _curated_for_name(model_name):
             return True
-        return f"LC Vision model '{model_name}' not found under models/LLM/GGUF."
+        lone = _models_without_mmproj().get(model_name)
+        if lone:
+            return _missing_mmproj_message(model_name, lone)
+        return (f"LC Vision model '{model_name}' not found under models/LLM. Pick a model in the list, or a ⬇ Download "
+                "entry to get one.")
 
     RETURN_TYPES = (MODEL_TYPE,)
     RETURN_NAMES = ("vision_model",)
@@ -869,6 +915,20 @@ class LCVisionLoader:
             ) from exc
 
         local_name = None
+        if model_name not in CURATED_DOWNLOADS and model_name not in _discover_vision_models():
+            cur = _curated_for_name(model_name)
+            if cur:
+                lone = _models_without_mmproj().get(model_name[:-5] if model_name.lower().endswith(".gguf") else model_name)
+                label_key, entry = cur
+                if lone:  # the model is on disk without its projector: fetch only the mmproj, into the same folder
+                    label, _ = _download_label(label_key)
+                    from .lc_first_download import toast
+
+                    toast(f"{label}: vision projector (mmproj)", "~0.8GB")
+                    _ensure_downloaded(entry["repo_id"], entry["mmproj_file"], os.path.dirname(lone), label, "~0.8GB",
+                                       cancel=True)
+                else:
+                    model_name = label_key  # not on disk at all: download the pair like the ⬇ entry
         if model_name in CURATED_DOWNLOADS:
             entry = CURATED_DOWNLOADS[model_name]
             models = _discover_vision_models()
@@ -890,10 +950,10 @@ class LCVisionLoader:
         else:
             models = _discover_vision_models()
             if model_name not in models:
-                raise FileNotFoundError(
-                    f"[LC Vision] '{model_name}' not found under models/LLM/GGUF. "
-                    "Place the model .gguf and its mmproj .gguf in the same folder."
-                )
+                lone = _models_without_mmproj().get(model_name)
+                raise FileNotFoundError("[LC Vision] " + (_missing_mmproj_message(model_name, lone) if lone else
+                                        f"'{model_name}' not found under models/LLM. Place the model .gguf and its "
+                                        "mmproj .gguf in the same folder, or pick a ⬇ Download entry."))
             model_path, mmproj_path = models[model_name]
 
         if device == "auto":

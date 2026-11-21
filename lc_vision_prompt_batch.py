@@ -422,13 +422,20 @@ class LCVisionPromptBatch:
             "required": ["idea", "texts"]}}}, "required": ["variants"]}
         prot = _protected(parts)
 
-        def note(t):
+        def note(t, kind):
             keep = sorted(_words(t) & prot)
-            return f"   (these words must stay: {', '.join(keep)})" if keep else ""
+            if not keep:
+                return ""
+            if kind == "VARY":
+                # "in an autumn forest": a plain "must stay" kept the whole forest. The season (time, weather) goes
+                # with the NEW place
+                return (f"   (write a new {', '.join(parts)}; keep {', '.join(keep)} as a word of the new one, e.g. "
+                        f"\"{keep[0]} mountain ridge\")")
+            return f"   (these words must stay: {', '.join(keep)})"
 
         listing = "\n".join(
-            f"{i + 1}. [{kind}] {t}{note(t)}" if t else f"{i + 1}. [VARY] (not in the prompt yet: write a short phrase "
-                                                       f"that states the {', '.join(parts)})"
+            f"{i + 1}. [{kind}] {t}{note(t, kind)}" if t else f"{i + 1}. [VARY] (not in the prompt yet: write a short "
+                                                              f"phrase that states the {', '.join(parts)})"
             for i, (_, _, t, kind) in enumerate(spans))
         old = sorted(old or set().union(*[_words(t) for _, _, t, kind in spans if kind == "VARY"]) or {"none"})
         rules = VARIANT_RULES.format(n=n, parts=", ".join(parts), words=max(4, int(variation * 0.7)), old=", ".join(old))
@@ -508,7 +515,10 @@ class LCVisionPromptBatch:
                 if ok:
                     r["texts"][j] = f
                     fixed_n += 1
-                elif (keep or sneak) and orig:  # the fix missed: the original is safer than a changed time of day
+                elif (keep or sneak) and orig and spans[j][3] != "VARY":
+                    # the fix missed: the original is safer than a changed time of day. Never on the picked part
+                    # itself: "in an autumn forest" put back undid the whole new location (the season word inside it
+                    # could not be kept), and every variant came out unchanged
                     r["texts"][j] = orig
                     restored += 1
         if fixed_n or restored:
