@@ -14,6 +14,12 @@
     },
     "LCVision_Models": {
       "tooltip": "LC Vision 可以使用的视觉模型，以及为它专门准备的模型的下载按钮。"
+    },
+    "LCVision_Assistant_HiddenTips": {
+      "tooltip": "你在 Vision Assistant 检查中用“Hide these tips”隐藏的提示。问题永远不会被隐藏。"
+    },
+    "LCVision_Assistant_HiddenSwaps": {
+      "tooltip": "你在 Vision Assistant 检查中用“Hide unticked”隐藏的节点替换和笔记转换。"
     }
   }
 }

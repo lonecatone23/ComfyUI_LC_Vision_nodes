@@ -159,10 +159,19 @@ lamps neon sign signs wall walls window windows door doors table tables chair ch
 cityscape street streets buildings building tower towers sky skies horizon urban downtown alley crowd traffic cars
 bridge pier dock harbor river lake sea ocean beach sand dunes mountains mountain forest trees meadow""".split())
 _FILM = set("bokeh grain grainy film lens aperture focus depth exposure".split())
+_PERSON = set("""woman women man men girl girls boy boys person lady gentleman child kid teen teenager""".split())
+# words that name the place itself: with Location picked, the phrase is the place
+PLACE_HEAD = set("""setting location background backdrop surroundings environment landscape scenery outdoor outdoors
+indoor indoors interior exterior wooded woods woodland""".split())
+# her face and the details of her clothes: never move with a place, a time or the weather (green eyes, a fur-lined hood)
+_FACE = set("""eye eyes eyebrows brows lashes eyelashes iris irises freckles freckled skin complexion lips lip nose cheeks
+cheekbones forehead chin jaw makeup lipstick eyeliner mascara blush""".split())
+_GARMENT = set("""hood hooded fur trim collar lining lined zipper zip sleeve sleeves cuff cuffs buttons button lace wool
+woolen knit knitted fleece leather denim fabric silk satin velvet cotton linen pocket pockets neckline hem""".split())
 
 
 def _unpicked_self(parts, text: str) -> bool:
-    """The phrase is about her hair, her outfit or the film look, and that part was not picked."""
+    """The phrase is about her hair, her face, her outfit or the film look, and that part was not picked."""
     picked = " | ".join(p.lower() for p in parts)
     raw = set(re.findall(r"[a-z]+", text.lower()))
     # "light ... her face and hair" is the light, not her hair: light / dark alone are not a hair color here
@@ -170,12 +179,19 @@ def _unpicked_self(parts, text: str) -> bool:
         return True
     if _lex_hit("outfit", text) and "outfit" not in picked and "cloth" not in picked:
         return True
+    lit = bool(raw & LEX["lighting"] or raw & PLACE_WORDS)  # "light on her face", "shadows on the fur": the light
+    if not lit and raw & _GARMENT and "outfit" not in picked and "cloth" not in picked:
+        return True
+    if not lit and raw & _FACE and not any(x in picked for x in ("expression", "eye", "makeup", "face", "skin")):
+        return True
     return bool(raw & _FILM) and not any(x in picked for x in ("framing", "camera", "style", "film"))
 SELF_PARTS = {"hair color", "hairstyle", "expression", "outfit", "makeup", "eye color", "pose", "camera angle", "framing"}
 
 # the words a known part is made of: a phrase with them always varies; for known parts, a phrase without them never does
 _COLORS = set("""blonde blond platinum brunette brown black red auburn ginger copper golden silver gray grey white
 chestnut honey ash strawberry raven jet dark light pink blue green purple violet""".split())
+# words a place and her clothes can share ("trees in warm brown tones" vs "fur trim in shades of brown"): no link
+_SHARED = _COLORS | set("""tones tone shades shade warm cool soft muted rich deep pale bright natural textured shapes""".split())
 LEX = {
     "time of day": GROUPS["time"][1],
     "weather": GROUPS["weather"][1],
@@ -257,7 +273,7 @@ def _fill(base: str, spans, texts) -> str:
     starts = [sp[0] for sp in spans] + [len(base)]
     for n, (sp, t) in enumerate(zip(spans, texts)):
         s, e, orig = sp[0], sp[1], sp[2]
-        t = str(t).strip().strip(",;") or orig
+        t = re.sub(r"^\s*\d+[.)]\s+", "", str(t)).strip().strip(",;") or orig  # the 9B numbers its texts ("1. next to")
         # the model sometimes runs on into the words that come next ("wide view with the whole fortress ..." twice,
         # which draws the person twice): drop that repeat
         nxt = base[e:starts[n + 1]].strip(" ,;.")
@@ -350,7 +366,7 @@ class LCVisionPromptBatch:
         return text, text, key
 
     def _split(self, vm, base, parts, seed):
-        key = _h(base, ",".join(p.lower() for p in parts), "v2")
+        key = _h(base, ",".join(p.lower() for p in parts), "v4")
         if key in _SPLITS:
             return _SPLITS[key]
         ph = _phrases(base)
@@ -374,6 +390,11 @@ class LCVisionPromptBatch:
                 labels[i] = "vary"  # "lit by overcast dusk" is the time of day, whatever the model said
             elif labels[i] == "vary" and all_known:
                 labels[i] = "keep"  # her job is not her outfit
+        place = any(p.lower() in ("location", "place", "setting", "background") for p in parts)
+        if place:  # "The setting appears to be ...", "the background is ...": the place itself, whatever the model said
+            for i, (_, _, t) in enumerate(ph):
+                if set(re.findall(r"[a-z]+", t.lower())) & PLACE_HEAD and not _unpicked_self(parts, t):
+                    labels[i] = "vary"
         # a kept phrase that names something from a vary phrase ("crisp fortress masonry", "looking out to sea") would
         # contradict the new version: it follows
         vwords = set()
@@ -381,21 +402,35 @@ class LCVisionPromptBatch:
             if lab == "vary":
                 vwords |= _words(t)
         self_only = all(p.lower() in SELF_PARTS for p in parts)
-        place = any(p.lower() in ("location", "place", "setting", "background") for p in parts)
         place_old = set()
         for i, ((_, _, t), lab) in enumerate(zip(ph, labels)):
             if self_only:
                 if lab == "follow":
                     labels[i] = "keep"  # a hair color, an outfit or a pose never moves the place or her job
-            elif lab == "keep" and _words(t) & vwords:
+            elif lab == "keep" and _words(t) & vwords - _SHARED:
                 labels[i] = "follow"
             elif lab == "keep" and place and _words(t) & PLACE_WORDS:
                 labels[i] = "follow"  # the railing, the string lights, the skyline belong to the old place
             # her hair, her clothes and the film look never move with a place unless they were picked
             if labels[i] != "keep" and _unpicked_self(parts, t):
                 labels[i] = "keep"
-            if place and labels[i] == "follow":
+        # the rest of a sentence about her ("..olive green parka, which features a thick, | textured fur trim..",
+        # "her lips painted a muted, | natural pinkish-brown tone") stays with it, unless it names the place or the light
+        is_self = [lab == "keep" and _unpicked_self(parts, t) for (_, _, t), lab in zip(ph, labels)]
+        for i in range(1, len(ph)):
+            t = ph[i][2]
+            raw = set(re.findall(r"[a-z]+", t.lower()))
+            same_sentence = not re.search(r"[.!?]", base[ph[i - 1][1]:ph[i][0]])
+            if (labels[i] == "follow" and is_self[i - 1] and same_sentence
+                    and not raw & (PLACE_WORDS | LEX["lighting"]) and not _words(t) & (vwords - _SHARED)):
+                labels[i], is_self[i] = "keep", True
+        for (_, _, t), lab in zip(ph, labels):
+            if place and lab == "follow":
                 place_old |= _words(t) & PLACE_WORDS
+        if place and "vary" not in labels:  # the model called the place "follow" ("next to a window"): it is the place
+            for i, (_, _, t) in enumerate(ph):
+                if labels[i] == "follow" and _words(t) & PLACE_WORDS:
+                    labels[i] = "vary"
         spans = [(s, e, t, lab.upper()) for (s, e, t), lab in zip(ph, labels) if lab in ("vary", "follow")]
         if not any(sp[3] == "VARY" for sp in spans):
             # the prompt never says it (no pose, no camera angle): add one slot at the end of the first sentence
@@ -404,7 +439,10 @@ class LCVisionPromptBatch:
             spans = sorted(spans + [(at, at, "", "VARY")])
         # the model's old words only count where they sit in a phrase that changes (it sometimes lists unrelated ones)
         changing = set().union(*[_words(t) for _, _, t, _ in spans] or [set()])
-        keeps = [(s, e, t) for (s, e, t), lab in zip(ph, labels) if lab == "keep"]
+        # the clash check never gets her (person, face, hair, clothes) or the style words: those always fit a new place
+        # ("a blonde woman in a parka" became "a desert woman in a turban")
+        keeps = [(s, e, t) for (s, e, t), lab in zip(ph, labels) if lab == "keep" and not _unpicked_self(parts, t)
+                 and not set(re.findall(r"[a-z]+", t.lower())) & (_PERSON | GROUPS["style"][1])]
         split = {"spans": spans, "old": sorted((old_words & changing) | vwords | place_old), "keeps": keeps,
                  "self_only": self_only}
         if any(sp[3] == "VARY" for sp in spans):
@@ -521,6 +559,14 @@ class LCVisionPromptBatch:
                     # could not be kept), and every variant came out unchanged
                     r["texts"][j] = orig
                     restored += 1
+                elif left and not keep and not sneak:
+                    # the fix missed and only old place words are left ("intimate nighttime urban portrait" in a
+                    # forest): drop those words here, the rest of the phrase stays as it was
+                    cut = re.sub(rf"\b(?:{'|'.join(map(re.escape, left))})\b\s*", "", t, flags=re.I)
+                    cut = re.sub(r"\s{2,}", " ", cut).strip(" ,;")
+                    if len(cut.split()) >= 2:
+                        r["texts"][j] = cut
+                        fixed_n += 1
         if fixed_n or restored:
             print(f"[LC Vision] Prompt Batch: fixed {fixed_n} phrases (old words or lost details), put {restored} back as written.")
 

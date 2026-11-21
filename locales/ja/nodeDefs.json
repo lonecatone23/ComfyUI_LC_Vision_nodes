@@ -417,5 +417,87 @@
         "tooltip": "対応するネガティブプロンプト (quality_tags がオンのときはスコア / 品質タグ付き)。"
       }
     }
+  },
+  "LCVisionPromptBatch": {
+    "description": "賢いワイルドカード処理：ベースのプロンプトを1つ用意し、変える部分（Location、Time of day、Hair color ...）を選ぶと、キューごとに N 個のバリエーションができます。選ばなかった部分は一字一句そのまま。seed を変えると新しいバッチを書きます。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "LC Vision Loader から。キューごとに1回動き、サンプリングの前にアンロードされます。"
+      },
+      "base_prompt": {
+        "tooltip": "変化させるプロンプト。💡 画像から始める場合：まず LC Vision Caption で説明文を作り（必要な部分だけなら LC Vision Filter も）、編集してここに貼り付けます。"
+      },
+      "vary": {
+        "tooltip": "変える部分、カンマ区切り。リストボタンで選ぶか、自分で入力します（Location、Time of day、Hair color、Outfit ...）。それ以外は一字一句そのまま。"
+      },
+      "count": {
+        "tooltip": "キューごとのプロンプト数：1つにつき画像1枚。seed を変えると新しいバッチを書きます。"
+      },
+      "variation": {
+        "tooltip": "各バリエーションが変える部分に使える token の量。低い = 手早い差し替え、高い = 豊かな新しい描写。"
+      },
+      "enhance_base": {
+        "tooltip": "ベースを1回だけ強化します。結果はノードに保持され、クリアするかベースのプロンプトを変えるまで、どの seed でも使われます。"
+      },
+      "seed": {
+        "tooltip": "新しい seed = 新しいバリエーションのバッチ。"
+      },
+      "kept_base": {
+        "tooltip": "強化したベース。クリアするまで保持されます。編集できます。"
+      },
+      "style_tag": {
+        "tooltip": "このスタイル（Anime、Cinematic、B&W ...）でベースを1回書き直し、強化したベースと同じように保持します。どのバリエーションにも反映されます。"
+      },
+      "max_tokens": {
+        "tooltip": "強化またはスタイル適用したベースの長さ、つまりバッチ内の各プロンプトの長さ。低い = 短いプロンプト、高い = 豊かなプロンプト。enhance_base がオン、または style_tag を選んだときに使われます。"
+      }
+    },
+    "outputs": {
+      "0": {
+        "tooltip": "画像1枚につきプロンプト1つ（リスト：各プロンプトが個別に生成されます）。"
+      },
+      "1": {
+        "tooltip": "使用中のベースのプロンプト（強化 / スタイルがオンならその結果）。"
+      },
+      "2": {
+        "tooltip": "バッチ全体を1つのテキストに、1行に1プロンプト：読む、保存する、テキストボックスに入れる用（prompt 出力はリストなので、別々の断片として表示されます）。"
+      },
+      "3": {
+        "tooltip": "出力されるプロンプトの数。"
+      },
+      "4": {
+        "tooltip": "ベースから取り出す部分：[vary] = 選んだ部分、{follow} = それに合わせて変わる細部。プレビューにつないで分け方を確認できます。"
+      }
+    }
+  },
+  "LCVisionFilter": {
+    "description": "Caption と Prompt Enhancer が何を書くかを決めます：画像の一部だけ（Person、Outfit ...）を説明する、または一部（Location、Background ...）を省きます。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "LC Vision Loader から。"
+      },
+      "describe": {
+        "tooltip": "この部分だけを書きます（Person、Outfit ...）、カンマ区切り。🎯 リストから選ぶか、自分で入力します。空 = すべて。"
+      },
+      "leave_out": {
+        "tooltip": "この部分は書きません（Location、Background ...）。🚫 リストから選ぶか、自分で入力します。"
+      }
+    },
+    "outputs": {
+      "0": {
+        "tooltip": "フィルターを適用した同じモデル。LC Vision Caption か LC Vision Prompt Enhancer につなぎます。"
+      }
+    }
+  },
+  "LCVisionImageWithPrompt": {
+    "description": "各画像のプロンプトを保持するプレビュー。ノードをダブルクリック（または 🔍）すると画像の横にプロンプトが表示され、クリックでコピーできます。",
+    "inputs": {
+      "images": {
+        "tooltip": "画像（VAE Decode の後）。Prompt Batch の出力はそのまま使えます。"
+      },
+      "prompt": {
+        "tooltip": "画像を作ったときのプロンプト。LC Vision Prompt Batch からなら、画像ごとに自分のプロンプトが付きます。"
+      }
+    }
   }
 }

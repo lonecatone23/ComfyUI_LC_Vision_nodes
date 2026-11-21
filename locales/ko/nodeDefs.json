@@ -417,5 +417,87 @@
         "tooltip": "짝이 되는 negative prompt입니다(quality_tags가 켜져 있으면 score / quality 태그 포함)."
       }
     }
+  },
+  "LCVisionPromptBatch": {
+    "description": "똑똑한 와일드카드 처리기: 기본 프롬프트 하나에서 바꿀 부분(Location, Time of day, Hair color ...)을 고르면 큐마다 N개의 변형을 만듭니다. 고르지 않은 부분은 한 글자도 바뀌지 않습니다. seed를 바꾸면 새 배치를 씁니다.",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "LC Vision Loader에서. 큐마다 한 번 실행되고, 샘플링 전에 언로드됩니다."
+      },
+      "base_prompt": {
+        "tooltip": "변형할 프롬프트. 💡 그림에서 시작한다면: 먼저 LC Vision Caption으로 설명을 만들고(원하는 부분만이면 LC Vision Filter도), 편집해서 여기에 붙여 넣으세요."
+      },
+      "vary": {
+        "tooltip": "바꿀 부분, 쉼표로 구분. 목록 버튼에서 고르거나 직접 입력합니다(Location, Time of day, Hair color, Outfit ...). 나머지는 한 글자도 바뀌지 않습니다."
+      },
+      "count": {
+        "tooltip": "큐당 프롬프트 수: 하나당 그림 한 장. seed를 바꾸면 새 배치를 씁니다."
+      },
+      "variation": {
+        "tooltip": "각 변형이 바뀌는 부분에 쓸 수 있는 token 예산. 낮음 = 빠른 교체, 높음 = 풍부한 새 묘사."
+      },
+      "enhance_base": {
+        "tooltip": "기본 프롬프트를 한 번 강화합니다. 결과는 노드에 남아 지우거나 기본 프롬프트를 바꿀 때까지 모든 seed에 쓰입니다."
+      },
+      "seed": {
+        "tooltip": "새 seed = 새 변형 배치."
+      },
+      "kept_base": {
+        "tooltip": "강화된 기본 프롬프트. 지울 때까지 유지됩니다. 편집할 수 있습니다."
+      },
+      "style_tag": {
+        "tooltip": "이 스타일(Anime, Cinematic, B&W ...)로 기본 프롬프트를 한 번 다시 쓰고, 강화된 기본처럼 유지합니다. 모든 변형에 적용됩니다."
+      },
+      "max_tokens": {
+        "tooltip": "강화되거나 스타일이 적용된 기본 프롬프트의 길이, 즉 배치 안 모든 프롬프트의 길이. 낮음 = 짧은 프롬프트, 높음 = 풍부한 프롬프트. enhance_base가 켜져 있거나 style_tag를 골랐을 때 쓰입니다."
+      }
+    },
+    "outputs": {
+      "0": {
+        "tooltip": "그림 한 장당 프롬프트 하나(목록: 프롬프트마다 따로 생성됩니다)."
+      },
+      "1": {
+        "tooltip": "사용 중인 기본 프롬프트(강화 / 스타일이 켜져 있으면 그 결과)."
+      },
+      "2": {
+        "tooltip": "배치 전체를 한 텍스트로, 한 줄에 프롬프트 하나: 읽기, 저장, 텍스트 상자용(prompt 출력은 목록이라 여러 조각으로 보입니다)."
+      },
+      "3": {
+        "tooltip": "내보내는 프롬프트 수."
+      },
+      "4": {
+        "tooltip": "기본 프롬프트에서 빼내는 부분: [vary] = 고른 부분, {follow} = 그에 맞춰 바뀌는 세부. 미리보기에 연결해 나눈 결과를 확인하세요."
+      }
+    }
+  },
+  "LCVisionFilter": {
+    "description": "Caption과 Prompt Enhancer가 무엇을 쓸지 정합니다: 그림의 일부만(Person, Outfit ...) 설명하거나 일부(Location, Background ...)를 뺍니다.",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "LC Vision Loader에서."
+      },
+      "describe": {
+        "tooltip": "이 부분만 씁니다(Person, Outfit ...), 쉼표로 구분. 🎯 목록에서 고르거나 직접 입력합니다. 비우면 = 전부."
+      },
+      "leave_out": {
+        "tooltip": "이 부분은 절대 쓰지 않습니다(Location, Background ...). 🚫 목록에서 고르거나 직접 입력합니다."
+      }
+    },
+    "outputs": {
+      "0": {
+        "tooltip": "필터가 켜진 같은 모델. LC Vision Caption이나 LC Vision Prompt Enhancer에 연결하세요."
+      }
+    }
+  },
+  "LCVisionImageWithPrompt": {
+    "description": "그림마다 프롬프트를 함께 남기는 미리보기. 노드를 더블클릭(또는 🔍)하면 그림 옆에 프롬프트가 보이고, 프롬프트를 클릭하면 복사됩니다.",
+    "inputs": {
+      "images": {
+        "tooltip": "그림(VAE Decode 이후). Prompt Batch 결과는 그대로 쓸 수 있습니다."
+      },
+      "prompt": {
+        "tooltip": "그림을 만들 때 쓴 프롬프트. LC Vision Prompt Batch에서 오면 그림마다 자기 프롬프트가 붙습니다."
+      }
+    }
   }
 }

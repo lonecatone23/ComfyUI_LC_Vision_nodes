@@ -14,6 +14,12 @@
     },
     "LCVision_Models": {
       "tooltip": "LC Vision で使える Vision モデルと、専用に作られたモデルのダウンロードボタン。"
+    },
+    "LCVision_Assistant_HiddenTips": {
+      "tooltip": "Vision Assistant のチェックで「Hide these tips」により非表示にしたヒント。問題は決して非表示になりません。"
+    },
+    "LCVision_Assistant_HiddenSwaps": {
+      "tooltip": "Vision Assistant のチェックで「Hide unticked」により非表示にしたノードの置き換えとノート変換。"
     }
   }
 }

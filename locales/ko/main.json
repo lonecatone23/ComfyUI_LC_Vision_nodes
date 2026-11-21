@@ -14,6 +14,12 @@
     },
     "LCVision_Models": {
       "tooltip": "LC Vision이 사용할 수 있는 비전 모델과, 이를 위해 만든 모델의 다운로드 버튼."
+    },
+    "LCVision_Assistant_HiddenTips": {
+      "tooltip": "Vision Assistant 점검에서 \"Hide these tips\"로 숨긴 팁. 문제는 절대 숨겨지지 않습니다."
+    },
+    "LCVision_Assistant_HiddenSwaps": {
+      "tooltip": "Vision Assistant 점검에서 \"Hide unticked\"로 숨긴 노드 교체와 노트 변환."
     }
   }
 }

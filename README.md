@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **CivitAI:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.6.31 · **12 nodes** + the **Vision Assistant** sidebar
+- **Version:** 1.6.37 · **15 nodes** + the **Vision Assistant** sidebar
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -183,6 +183,7 @@ A wildcard processor with a brain. One base prompt, pick what changes, and it wr
 
 - **vary:** what changes, from the 🎯 **What changes** list or typed (Location, Time of day, Hair color, Outfit, Pose, Camera angle, etc.). Everything you didn't pick stays word for word.
 - Details tied to the old version adapt with it: change the place and the railing, the string lights and the skyline go too.
+- Her face, hair and clothes stay word for word unless you pick them: a new place never changes her eye color or the fur on her hood.
 - **count:** prompts per run, one picture each. New seed = new batch, same seed = same batch.
 - **variation:** how much each new part gets to say. 60 is a quick swap, 150 and up a rich new description.
 - **enhance_base / style_tag / max_tokens:** rewrite the base once (more detail, a style, a length) and keep it through every seed. 🗑 **Clear kept base** starts over.

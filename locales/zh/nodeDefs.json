@@ -417,5 +417,87 @@
         "tooltip": "匹配的 negative prompt(quality_tags 开启时带 score / quality 标签)。"
       }
     }
+  },
+  "LCVisionPromptBatch": {
+    "description": "智能通配符处理器：一个基础提示词，选好要变的部分（Location、Time of day、Hair color ...），每次排队得到 N 个变体。没选的部分一字不改。换一个 seed 就写出新的一批。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "来自 LC Vision Loader。每次排队运行一次，然后在采样前卸载。"
+      },
+      "base_prompt": {
+        "tooltip": "要变化的提示词。💡 从一张图开始：先用 LC Vision Caption 描述它（只想要部分内容就加 LC Vision Filter），编辑后粘贴到这里。"
+      },
+      "vary": {
+        "tooltip": "要变的部分，逗号分隔。用列表按钮选，或自己输入（Location、Time of day、Hair color、Outfit ...）。其他内容一字不改。"
+      },
+      "count": {
+        "tooltip": "每次排队的提示词数量：每个一张图。换一个 seed 就写出新的一批。"
+      },
+      "variation": {
+        "tooltip": "每个变体在要变的部分上可用的 token 预算。低 = 快速替换，高 = 丰富的新描述。"
+      },
+      "enhance_base": {
+        "tooltip": "把基础提示词增强一次。结果保存在节点上，所有 seed 共用，直到你清除它或修改基础提示词。"
+      },
+      "seed": {
+        "tooltip": "新 seed = 新一批变体。"
+      },
+      "kept_base": {
+        "tooltip": "增强后的基础提示词，清除前一直保留。可以编辑。"
+      },
+      "style_tag": {
+        "tooltip": "用这个风格（Anime、Cinematic、B&W ...）把基础提示词改写一次，像增强后的基础一样保留。每个变体都带上它。"
+      },
+      "max_tokens": {
+        "tooltip": "增强或加风格后的基础提示词长度，也就是这一批每个提示词的长度。低 = 更短，高 = 更丰富。在 enhance_base 打开或选了 style_tag 时使用。"
+      }
+    },
+    "outputs": {
+      "0": {
+        "tooltip": "每张图一个提示词（一个列表：每个提示词各自生成一次）。"
+      },
+      "1": {
+        "tooltip": "正在使用的基础提示词（打开增强 / 风格时为处理后的版本）。"
+      },
+      "2": {
+        "tooltip": "整批合成一段文字，每行一个提示词：方便阅读、保存或放进文本框（prompt 输出是列表，会显示成分开的几段）。"
+      },
+      "3": {
+        "tooltip": "输出的提示词数量。"
+      },
+      "4": {
+        "tooltip": "从基础提示词里拿出来的部分：[vary] = 选中的部分，{follow} = 随之调整的细节。接到预览节点上检查拆分结果。"
+      }
+    }
+  },
+  "LCVisionFilter": {
+    "description": "决定 Caption 和 Prompt Enhancer 写什么：只描述图片的某些部分（Person、Outfit ...），或者略过某些部分（Location、Background ...）。",
+    "inputs": {
+      "vision_model": {
+        "tooltip": "来自 LC Vision Loader。"
+      },
+      "describe": {
+        "tooltip": "只写这些部分（Person、Outfit ...），逗号分隔。从 🎯 列表选，或自己输入。留空 = 全部。"
+      },
+      "leave_out": {
+        "tooltip": "这些部分永远不写（Location、Background ...）。从 🚫 列表选，或自己输入。"
+      }
+    },
+    "outputs": {
+      "0": {
+        "tooltip": "同一个模型，带上过滤。接到 LC Vision Caption 或 LC Vision Prompt Enhancer。"
+      }
+    }
+  },
+  "LCVisionImageWithPrompt": {
+    "description": "保留每张图提示词的预览。双击节点（或点 🔍）可在图旁查看提示词；点击提示词即可复制。",
+    "inputs": {
+      "images": {
+        "tooltip": "图片（VAE Decode 之后）。Prompt Batch 的输出可以直接用。"
+      },
+      "prompt": {
+        "tooltip": "生成这些图时用的提示词。来自 LC Vision Prompt Batch 时，每张图各有自己的提示词。"
+      }
+    }
   }
 }
