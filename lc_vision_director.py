@@ -36,7 +36,7 @@ from .lc_vision_moviemaker import CUSTOM_PRESET_LABEL, FALLBACK_PRESET, _META_LE
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_content
 
 NODE_ID = "LCVisionDirector"
-NODE_DISPLAY_NAME = "LC Vision Showrunner (BETA) 🎬"
+NODE_DISPLAY_NAME = "LC Vision Showrunner (deprecated) 🎬"
 
 PLAN_TYPE = "LC_H3_PLAN"
 MAX_SEGMENTS = 60
@@ -716,6 +716,7 @@ class LCVisionDirector:
     RETURN_NAMES = ("plan", "plan_text", "project_name")
     FUNCTION = "run"
     CATEGORY = "LC Vision"
+    DEPRECATED = True  # replaced by LC H3 Story (LC AV): hidden from search, saved workflows still load and run
     DESCRIPTION = ("Plans a long MiniMax H3 video as a chain of short CUT / CONTINUE segments with one shared style block. "
                    "Saves the plan to the project folder and reuses it.")
 

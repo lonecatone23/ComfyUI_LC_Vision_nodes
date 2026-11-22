@@ -235,6 +235,7 @@ class LCVisionShotList:
     )
     FUNCTION = "build"
     CATEGORY = "LC Vision"
+    DEPRECATED = True  # replaced by LC H3 Story (LC AV): hidden from search, saved workflows still load and run
     DESCRIPTION = ("Fill in a shot list (place, cast, one row per shot) and get the story LC Vision Showrunner reads best: "
                    "the cast by name, 'Cut to' for every new shot, the framing, the camera move and one short line per shot. No AI.")
 
@@ -251,4 +252,4 @@ class LCVisionShotList:
 
 
 NODE_CLASS_MAPPINGS = {"LCVisionShotList": LCVisionShotList}
-NODE_DISPLAY_NAME_MAPPINGS = {"LCVisionShotList": "LC Vision Shot List (BETA) 📋"}
+NODE_DISPLAY_NAME_MAPPINGS = {"LCVisionShotList": "LC Vision Shot List (deprecated) 📋"}

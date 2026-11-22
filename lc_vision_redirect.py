@@ -30,7 +30,7 @@ from .lc_vision_loader import LCVisionModel, MODEL_TYPE, strip_thinking
 from .lc_vision_moviemaker import _timestamps
 
 NODE_ID = "LCVisionRedirect"
-NODE_DISPLAY_NAME = "LC Vision Redirect (BETA) 🔬"
+NODE_DISPLAY_NAME = "LC Vision Redirect (deprecated) 🔬"
 
 # two calls: a small vision model describes well but rewrites lazily when it also has to look,
 # so it first only looks, then rewrites from its own sentence as a text task
@@ -185,6 +185,7 @@ class LCVisionRedirect:
     RETURN_NAMES = ("plan", "notes")
     FUNCTION = "run"
     CATEGORY = "LC Vision"
+    DEPRECATED = True  # replaced by LC H3 Story (LC AV): hidden from search, saved workflows still load and run
     DESCRIPTION = ("LC Vision Showrunner does this itself now; kept so older workflows open. Looks at how the previous segment "
                    "really ended and rewrites the opening of the next CONTINUE segment to start from there (instant when the "
                    "Showrunner already did it).")

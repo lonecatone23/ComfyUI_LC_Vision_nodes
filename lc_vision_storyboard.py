@@ -285,6 +285,7 @@ class LCVisionStoryboardBuilder:
     OUTPUT_IS_LIST = (True, True, True, True, False)
     FUNCTION = "build"
     CATEGORY = "LC Vision/movie"
+    DEPRECATED = True  # replaced by LC H3 Story (LC AV): hidden from search, saved workflows still load and run
     DESCRIPTION = ("Pictures for a Showrunner movie: finds what the project is missing (faces, places, anchors) and "
                    "makes one prompt, latent and seed per picture for the sampler. Feed LC Vision Storyboard Save.")
 
@@ -390,6 +391,7 @@ class LCVisionStoryboardSave:
     OUTPUT_NODE = True
     FUNCTION = "save"
     CATEGORY = "LC Vision/movie"
+    DEPRECATED = True  # replaced by LC H3 Story (LC AV): hidden from search, saved workflows still load and run
     DESCRIPTION = ("Saves the Storyboard Builder's pictures to input/lc_h3_refs/<project>/ and lists them in the "
                    "project. 📂 Load on the Showrunner adds them to the Reference Assembler.")
 
@@ -452,6 +454,7 @@ class LCVisionStoryboardSheet:
     RETURN_TYPES = ()
     FUNCTION = "noop"
     CATEGORY = "LC Vision/movie"
+    DEPRECATED = True  # replaced by LC H3 Story (LC AV): hidden from search, saved workflows still load and run
     DESCRIPTION = ("The storyboard on the node: a card for every picture the movie can use (faces, places, anchors). ✅ Use "
                    "puts one in the Reference Assembler, ↻ makes it again, ✎ changes its prompt. Nothing to wire: it follows "
                    "the Showrunner's project.")
@@ -499,6 +502,6 @@ _routes()
 
 NODE_CLASS_MAPPINGS = {"LCVisionStoryboardBuilder": LCVisionStoryboardBuilder, "LCVisionStoryboardSave": LCVisionStoryboardSave,
                        "LCVisionStoryboardSheet": LCVisionStoryboardSheet}
-NODE_DISPLAY_NAME_MAPPINGS = {"LCVisionStoryboardBuilder": "LC Vision Storyboard Builder (BETA) 🎞️",
-                              "LCVisionStoryboardSave": "LC Vision Storyboard Save (BETA) 🎞️",
-                              "LCVisionStoryboardSheet": "LC Vision Storyboard Sheet (BETA) 🎞️"}
+NODE_DISPLAY_NAME_MAPPINGS = {"LCVisionStoryboardBuilder": "LC Vision Storyboard Builder (deprecated) 🎞️",
+                              "LCVisionStoryboardSave": "LC Vision Storyboard Save (deprecated) 🎞️",
+                              "LCVisionStoryboardSheet": "LC Vision Storyboard Sheet (deprecated) 🎞️"}
