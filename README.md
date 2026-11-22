@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **CivitAI:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.6.37 · **15 nodes** + the **Vision Assistant** sidebar
+- **Version:** 1.6.38 · **15 nodes** + the **Vision Assistant** sidebar
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -154,9 +154,12 @@ Handle + prompt + references → text.
 
 ## LC Vision Reviewer 🕵️ (BETA)
 
-A quality gate for finished renders. Asks the vision model yes/no questions and passes the image on with **passed** and a **report**.
+A quality gate for finished renders. Asks the vision model yes/no questions and passes the image on with **passed**, a **report** and a short **note**.
 
 - Checks: **hands**, **faces**, **text** (signs spelled right), **artifacts**, plus a **prompt** match when you wire the positive prompt in.
+- **presence**: the anti-mannequin check. The body is supported (weight on a leg, a seat or wall actually holding it, no floating feet or props) and there is only one of the person (no clone, no inset picture).
+- **prompt** is information, never a miss: an off picture still passes and shows **· prompt ⚠️** on the note.
+- **note**: one line per picture, e.g. **QC ✅ 5/5** or **QC ❌ 4/5: hands**. Wire it into **LC Preview Gate**'s `note` (LC123) to see it on every thumbnail. A ❌ gets a red ✕ in the corner, nothing is dropped for you.
 - **custom_checks**: your own, one per line, written so yes = good (e.g. Is she wearing a parka?).
 - **on_fail**: **flag** (default) always passes the image on. **block** stops everything wired after it (the save, the upscaler, etc.).
 - A batch of more than 4 frames is read as a video: a few frames across the clip are checked together.

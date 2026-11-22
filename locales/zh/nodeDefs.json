@@ -112,7 +112,7 @@
         "tooltip": "flag：始终放行图像，只是把 passed 设为 false 并在报告中说明原因。block：检查失败时，停止接在此节点之后的所有节点（保存、upscaler 等）。"
       },
       "prompt": {
-        "tooltip": "把 positive 提示词接到这里，还会检查图像是否与之相符。"
+        "tooltip": "把 positive 提示词接到这里，还会检查图像是否与之相符。只作参考，不算失误：不符的图片会在备注上显示 · prompt ⚠️。"
       },
       "custom_checks": {
         "tooltip": "你自己的检查项,每行一条,写成「是 = 好」的形式。例如 Is she wearing a parka?"
@@ -122,6 +122,9 @@
       },
       "video_frames": {
         "tooltip": "对于视频：在整段片段中取多少帧来查看。"
+      },
+      "presence": {
+        "tooltip": "防假人检查：身体有支撑且平衡（没有悬空的脚或道具），而且画面里只有一个这个人（没有分身或小插图）。"
       }
     }
   },

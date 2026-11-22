@@ -33,8 +33,17 @@ SYSTEM = ("You are a strict quality inspector for AI generated images. Look care
           "Answer every question with only yes or no, one numbered answer per line, nothing else.")
 
 
-def _questions(hands, faces, text, artifacts, prompt, custom_checks):
+PRESENCE = [
+    ("support", "Does the body look naturally supported and balanced (weight on one leg, or a seat, wall, table or floor "
+                "visibly holding it), with no floating feet or props?"),
+    ("one person", "Is there only one copy of the person, with no duplicated body, mirror clone or small inset picture?"),
+]
+
+
+def _questions(hands, faces, text, artifacts, prompt, custom_checks, presence=False):
     qs = [(k, CHECKS[k]) for k, on in (("hands", hands), ("faces", faces), ("text", text), ("artifacts", artifacts)) if on]
+    if presence:
+        qs += PRESENCE
     if (prompt or "").strip():
         qs.append(("prompt", "Does the image show what this prompt asks for (the main subject, action and setting)? "
                              f"Prompt: {prompt.strip()}"))
@@ -74,7 +83,9 @@ class LCVisionReviewer:
             },
             "optional": {
                 "prompt": ("STRING", {"forceInput": True,
-                                      "tooltip": "Wire the positive prompt here to also check the image matches it."}),
+                                      "tooltip": "Wire the positive prompt here to also check the image matches it. "
+                                                 "Information only, never a miss: an off picture shows · prompt ⚠️ on "
+                                                 "the note."}),
                 "custom_checks": ("STRING", {"multiline": True, "default": "",
                                              "tooltip": "Your own checks, one per line, written so yes = good. "
                                                         "e.g. Is she wearing a parka?"}),
@@ -82,12 +93,18 @@ class LCVisionReviewer:
                                          "tooltip": "How many failed checks are allowed before it counts as a fail."}),
                 "video_frames": ("INT", {"default": 6, "min": 1, "max": 32,
                                          "tooltip": "For a video: how many frames across the clip to look at."}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1}),
+                # declared (not left to the frontend): with the forceInput prompt above, an undeclared seed control made
+                # the frontend drop a saved value on load and shift every setting after it
+                "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1, "control_after_generate": True}),
+                "presence": ("BOOLEAN", {"default": False,
+                                         "tooltip": "Anti-mannequin checks: the body is supported and balanced (no "
+                                                    "floating feet or props), and there is one copy of the person (no "
+                                                    "clone or inset picture)."}),
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "BOOLEAN", "STRING")
-    RETURN_NAMES = ("image", "passed", "report")
+    RETURN_TYPES = ("IMAGE", "BOOLEAN", "STRING", "STRING")
+    RETURN_NAMES = ("image", "passed", "report", "note")
     FUNCTION = "run"
     CATEGORY = "LC Vision"
     OUTPUT_NODE = True
@@ -101,13 +118,13 @@ class LCVisionReviewer:
             release(vision_model)
 
     def _run(self, vision_model: LCVisionModel, image, hands, faces, text, artifacts, on_fail, prompt="",
-             custom_checks="", max_failures=0, video_frames=6, seed=0):
+             custom_checks="", max_failures=0, video_frames=6, seed=0, presence=False):
         if vision_model is None:
             raise ValueError("[LC Vision] Reviewer received no model -- connect an LC Vision Loader.")
-        qs = _questions(hands, faces, text, artifacts, prompt, custom_checks)
+        qs = _questions(hands, faces, text, artifacts, prompt, custom_checks, presence)
         if not qs:
             return {"ui": {"text": ["Nothing to check: turn on a check or add your own."]},
-                    "result": (image, True, "Nothing to check.")}
+                    "result": (image, True, "Nothing to check.", "")}
         frames = _image_input_to_base64_list(image, 1024, 92)
         video = len(frames) > 4
         if video:
@@ -116,7 +133,9 @@ class LCVisionReviewer:
               "\n".join(f"{i + 1}. {q}" for i, (_, q) in enumerate(qs))
 
         groups = [frames] if video else [[f] for f in frames]
-        fails, lines = [], []
+        # the prompt check is information, never a miss: a dataset line it calls off (a missing smile, the outfit from
+        # the reference) still makes a good picture; it shows on the note, it doesn't fail the picture
+        fails, lines, unsure, info = [], [], 0, []
         for gi, group in enumerate(groups):
             content = [{"type": "text", "text": ask}] + \
                       [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}"}} for b in group]
@@ -131,6 +150,13 @@ class LCVisionReviewer:
             tag = "" if len(groups) == 1 else f"image {gi + 1}: "
             for (name, _), a in zip(qs, ans):
                 ok = a == "yes"
+                if name == "prompt":
+                    if not ok:
+                        info.append(f"{tag}prompt")
+                    lines.append(f"{'✅' if ok else '⚠️'} {tag}prompt (info, not a miss)")
+                    continue
+                if a not in ("yes", "no"):
+                    unsure += 1
                 if not ok:
                     fails.append(f"{tag}{name}")
                 lines.append(f"{'✅' if ok else ('❌' if a == 'no' else '❔')} {tag}{name}")
@@ -138,12 +164,18 @@ class LCVisionReviewer:
         passed = len(fails) <= max_failures
         head = "PASSED" if passed else "FAILED: " + ", ".join(fails)
         report = head + "\n" + "\n".join(lines)
+        # one short line for LC Preview Gate's thumbnails: ✅ all clean, ⚠️ passed with a miss or an unclear answer,
+        # ❌ failed (a red ✕ there: a likely drop). The prompt check only adds "· prompt ⚠️".
+        total = len(lines) - sum(1 for l in lines if "(info, not a miss)" in l)
+        mark = "❌" if len(fails) - unsure > max_failures else ("⚠️" if fails else "✅")
+        note = (f"QC {mark} {total - len(fails)}/{total}" + (": " + ", ".join(fails) if fails else "")
+                + (" · prompt ⚠️" if info else ""))
         out = image
         if not passed and on_fail == "block":
             from comfy_execution.graph_utils import ExecutionBlocker
             out = ExecutionBlocker(None)
             report = "BLOCKED. " + report
-        return {"ui": {"text": [report]}, "result": (out, passed, report)}
+        return {"ui": {"text": [report]}, "result": (out, passed, report, note)}
 
 
 NODE_CLASS_MAPPINGS = {NODE_ID: LCVisionReviewer}

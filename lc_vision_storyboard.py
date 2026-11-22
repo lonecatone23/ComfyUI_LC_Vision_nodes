@@ -268,7 +268,7 @@ class LCVisionStoryboardBuilder:
                 "portrait_size": ("INT", {"default": 1024, "min": 512, "max": 2048, "step": 16, "tooltip": "Square size of the cast portraits."}),
                 "landscape_width": ("INT", {"default": 1344, "min": 512, "max": 2560, "step": 16, "tooltip": "Width of the place pictures and anchors. 1344 x 768 matches the movie's 960 x 544 shape."}),
                 "landscape_height": ("INT", {"default": 768, "min": 512, "max": 2048, "step": 16, "tooltip": "Height of the place pictures and anchors."}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Each picture's seed comes from this plus its name, so a redo of one picture keeps the others."}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True, "tooltip": "Each picture's seed comes from this plus its name, so a redo of one picture keeps the others."}),
             },
             "optional": {
                 "only": ("STRING", {"default": "", "tooltip": "Optional. Names to make (again), comma separated, like: Earl, the bank lobby. Blank = everything make and the switches allow."}),
