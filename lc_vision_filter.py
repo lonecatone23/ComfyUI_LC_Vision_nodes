@@ -8,12 +8,13 @@ from __future__ import annotations
 import re
 
 from .lc_vision_loader import MODEL_TYPE
+from .lc_vision_prompt_order import POSE_RULE, in_order
 
 NODE_ID = "LCVisionFilter"
 NODE_DISPLAY_NAME = "LC Vision Filter 🧹"
 
-PARTS = ["Person", "Face", "Hair", "Body", "Outfit", "Accessories", "Pose", "Expression", "Location", "Background",
-         "Props", "Lighting", "Time of day", "Weather", "Camera angle", "Framing", "Style"]
+PARTS = ["Camera angle", "Framing", "Lighting", "Time of day", "Location", "Background", "Props", "Weather",
+         "Person", "Face", "Hair", "Body", "Outfit", "Accessories", "Expression", "Pose", "Style"]
 
 # what each part takes in, so "Location" also drops the railing and the string lights
 SCOPE = {
@@ -47,11 +48,15 @@ def _scope(p: str) -> str:
 
 def filter_text(describe: str, leave_out: str) -> str:
     """The instruction added to the system prompt ('' = no filter)."""
-    inc, exc = _list(describe), _list(leave_out)
+    inc, exc = in_order(_list(describe)), _list(leave_out)
     out = []
     if inc:
         out.append("Describe only these parts of the picture: " + "; ".join(_scope(p) for p in inc) + ". Leave "
                    "everything else out completely: do not mention it, not even in passing.")
+        if len(inc) > 1:
+            out.append("Write them in the order listed.")  # the shared prompt order: camera, light, place, person ...
+        if any(p.lower() == "pose" for p in inc):
+            out.append(POSE_RULE)
     if exc:
         out.append("Never mention these parts of the picture, not even in passing: " + "; ".join(_scope(p) for p in exc)
                    + ".")

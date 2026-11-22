@@ -31,16 +31,18 @@ NODE_DISPLAY_NAME = "LC Vision Caption 📝"
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are a helpful vision assistant. Describe what you are shown in rich, concrete "
-    "detail rather than a brief summary: subject appearance, pose and expression, "
-    "clothing, setting and background, lighting, color palette, composition and camera "
-    "angle, and overall mood. Do not skip detail for the sake of brevity. Respond with "
-    "the final answer only -- no reasoning, no <think> blocks."
+    "detail rather than a brief summary, in this order: the camera angle and framing, "
+    "the lighting and color palette, the setting and background, the subject's appearance "
+    "and clothing, the expression, the pose, and the overall mood. Write the pose as body "
+    "mechanics: where the weight sits, which way the hips and shoulders turn, the head and "
+    "chin, where each hand is, and the feet. Do not skip detail for the sake of brevity. "
+    "Respond with the final answer only -- no reasoning, no <think> blocks."
 )
 
 DEFAULT_PROMPT = (
-    "Describe this image in detail: the subject's appearance, pose, and expression, "
-    "their clothing, the setting and background, lighting and color palette, "
-    "composition, and overall mood."
+    "Describe this image in detail, in this order: the camera angle and framing, the "
+    "lighting and color palette, the setting and background, the subject's appearance "
+    "and clothing, their expression, their pose, and the overall mood."
 )
 
 

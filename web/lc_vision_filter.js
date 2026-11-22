@@ -30,8 +30,8 @@ function noSave(...widgets) {
 }
 
 const NODE = "LCVisionFilter";
-const PARTS = ["Person", "Face", "Hair", "Body", "Outfit", "Accessories", "Pose", "Expression", "Location", "Background",
-  "Props", "Lighting", "Time of day", "Weather", "Camera angle", "Framing", "Style"];
+const PARTS = ["Camera angle", "Framing", "Lighting", "Time of day", "Location", "Background", "Props", "Weather",
+  "Person", "Face", "Hair", "Body", "Outfit", "Accessories", "Expression", "Pose", "Style"];
 
 const ev = (e) => e || app.canvas?.last_mouse_event || window.event;
 

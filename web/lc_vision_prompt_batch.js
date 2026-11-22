@@ -3,8 +3,8 @@
 import { app } from "../../scripts/app.js";
 
 const NODE = "LCVisionPromptBatch";
-const PARTS = ["Location", "Time of day", "Weather", "Lighting", "Season", "Hair color", "Hairstyle", "Outfit", "Pose",
-  "Expression", "Camera angle", "Framing"];
+const PARTS = ["Camera angle", "Framing", "Lighting", "Time of day", "Location", "Weather", "Season", "Hair color",
+  "Hairstyle", "Outfit", "Expression", "Pose"];
 
 const widget = (node, name) => node.widgets?.find((w) => w.name === name);
 

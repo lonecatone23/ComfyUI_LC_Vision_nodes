@@ -22,13 +22,14 @@ import re
 
 from .lc_vision_generate import budget_line, generate_with_recovery, release, trim_to_sentence
 from .lc_vision_loader import LCVisionModel, MODEL_TYPE, strip_thinking
+from .lc_vision_prompt_order import ORDER_RULE, PART_SLOT, POSE_RULE
 from .lc_vision_styles import STYLE_TAG_OPTIONS, apply_style_tag_to_text
 
 NODE_ID = "LCVisionPromptBatch"
 NODE_DISPLAY_NAME = "LC Vision Smart Prompt Batch 🎓"
 
-PARTS = ["Location", "Time of day", "Weather", "Lighting", "Season", "Hair color", "Hairstyle", "Outfit", "Pose",
-         "Expression", "Camera angle", "Framing"]
+PARTS = ["Camera angle", "Framing", "Lighting", "Time of day", "Location", "Weather", "Season", "Hair color",
+         "Hairstyle", "Outfit", "Expression", "Pose"]
 
 _SPLITS: dict[str, dict] = {}  # base + parts -> labelled phrases (one call; reused for every seed)
 
@@ -63,6 +64,7 @@ VARIANT_RULES = (
     "every idea changes all of them (a place AND a time of day: \"a desert market at noon\").\n"
     "The idea names ONLY the picked parts, nothing else: a pose is a body position (\"kneeling, one hand on the "
     "latch\"), a camera angle is a viewpoint (\"low angle from below\"), an expression is a face (\"a wry half smile\"). "
+    + POSE_RULE + " "
     "Never put a place, a time, weather or a mood in an idea unless that part is picked. A camera angle is a real "
     "camera position (low angle, high angle, bird's-eye, worm's-eye, eye level, over the shoulder, profile, from "
     "behind, Dutch angle, close-up, extreme wide): no reflections, mirrors or frames to look through.\n"
@@ -87,8 +89,8 @@ VARIANT_RULES = (
 ENHANCE_RULES = (
     "Rewrite the user's image prompt into a richer one paragraph prompt. Keep every fact the user gave, word for word "
     "where you can (the person, their age, face, eyes, hair, the outfit, the place, the light, the look); only add "
-    "concrete visual detail (or, when the length asks for less, tighten it and keep the facts that matter most). No "
-    "lists, no headings. Output only the prompt.")
+    "concrete visual detail (or, when the length asks for less, tighten it and keep the facts that matter most). "
+    + ORDER_RULE + " " + POSE_RULE + " No lists, no headings. Output only the prompt.")
 
 CHECK_RULES = (
     "A batch generator swapped parts of an image prompt. For each new picture, list the numbers of the kept phrases "
@@ -157,7 +159,8 @@ anime cartoon render""".split())),
 PLACE_WORDS = set("""railing railings fence fences balcony rooftop roof terrace bench benches lights lanterns bulbs lamp
 lamps neon sign signs wall walls window windows door doors table tables chair chairs counter bar shelf shelves skyline city
 cityscape street streets buildings building tower towers sky skies horizon urban downtown alley crowd traffic cars
-bridge pier dock harbor river lake sea ocean beach sand dunes mountains mountain forest trees meadow""".split())
+bridge pier dock harbor river lake sea ocean beach sand dunes mountains mountain forest trees meadow glass pane panes
+raindrops windowsill sill""".split())
 _FILM = set("bokeh grain grainy film lens aperture focus depth exposure".split())
 _PERSON = set("""woman women man men girl girls boy boys person lady gentleman child kid teen teenager""".split())
 # words that name the place itself: with Location picked, the phrase is the place
@@ -205,10 +208,11 @@ armor apron overalls""".split()),
 pensive gaze""".split()),
     "lighting": set("""lit light lighting glow glowing shadow shadows sunlight lamp candle neon backlit rim""".split())
     | GROUPS["time"][1],
-    "pose": set("""standing stands sitting sits seated leaning leans kneeling lying crouching walking walks running pose
-posing arms hands hand leg legs shoulder shoulders looking looks gazing glancing turning turned checks checking holding
-holds reaching reaches resting rests""".split()),
-    "camera angle": set("""view shot angle closeup overhead aerial still""".split()),
+    "pose": set("""standing stands sitting sits seated leaning leans kneeling kneels lying crouching squatting perched
+walking walks running pose posing arms arm hands hand leg legs shoulder shoulders forearm forearms elbow elbows knee knees
+hip hips foot feet looking looks gazing glancing turning turned checks checking holding holds reaching reaches resting
+rests""".split()),
+    "camera angle": set("""view shot angle closeup overhead aerial still framing""".split()),
     "framing": set("""view shot closeup medium portrait framing frame cropped still""".split()),
 }
 
@@ -220,10 +224,15 @@ CAMERA_IDEAS = ["low angle from below", "high angle from above", "bird's-eye vie
                 "full body shot", "aerial drone shot"]
 
 
+_HAIR_NOUNS = set("blonde blond brunette redhead redheaded".split())  # "a blonde woman" names a hair color, no "hair"
+
+
 def _lex_hit(part: str, text: str) -> bool:
     words = set(re.findall(r"[a-z]+", text.lower()))
     if part == "hair color":
-        return "hair" in words and bool(words & _COLORS)
+        return ("hair" in words and bool(words & _COLORS)) or bool(words & _HAIR_NOUNS)
+    if part in ("camera angle", "framing") and re.match(r"\s*(?:the\s+)?camera\b", text, re.I):
+        return True  # "Camera at chest height" is the camera, whatever words follow
     return bool(words & LEX.get(part, set()))
 
 
@@ -268,7 +277,34 @@ def _phrases(base: str) -> list[tuple[int, int, str]]:
     return out
 
 
+_LEAD = {"a", "an", "the", "she", "he", "they", "her", "his", "their", "two", "three", "four", "some"}
+
+
+def _slot_at(base: str, parts) -> int:
+    """Where a part the prompt never states goes, in the shared order: camera at the very start; pose, expression or
+    mood late (the end of the last sentence, or the one before it when the last is a short closing line like
+    "Photorealistic photograph, sharp focus."); anything else at the end of the first sentence."""
+    slots = {PART_SLOT.get(p.strip().lower()) for p in parts}
+    if "camera" in slots:
+        return 0
+    text = base.rstrip()
+    ends = [m.start() for m in re.finditer(r"[.!?](?=\s|$)", text)]
+    if not ends or ends[-1] < len(text) - 1:
+        ends.append(len(text))  # the last sentence has no full stop
+    if slots & {"pose", "expression", "mood"}:
+        if len(ends) > 1 and len(text[ends[-2] + 1:ends[-1]].split()) <= 6:
+            return ends[-2]
+        return ends[-1]
+    return ends[0]
+
+
 def _fill(base: str, spans, texts) -> str:
+    if spans and spans[0][0] == 0 and spans[0][1] == 0 and not spans[0][2]:
+        # a camera slot goes in front: "A woman ..." reads on as "Low angle from below, a woman ..."
+        first = re.match(r"\s*(\w+)", base)
+        if first and first.group(1).lower() in _LEAD:
+            i = first.start(1)
+            base = base[:i] + base[i].lower() + base[i + 1:]
     out, at = [], 0
     starts = [sp[0] for sp in spans] + [len(base)]
     for n, (sp, t) in enumerate(zip(spans, texts)):
@@ -277,12 +313,25 @@ def _fill(base: str, spans, texts) -> str:
         # the model sometimes runs on into the words that come next ("wide view with the whole fortress ..." twice,
         # which draws the person twice): drop that repeat
         nxt = base[e:starts[n + 1]].strip(" ,;.")
-        if len(nxt) > 12 and nxt.lower() in t.lower() and nxt.lower() not in orig.lower():
-            i = t.lower().find(nxt.lower())
-            t = (t[:i] + t[i + len(nxt):]).strip(" ,;")
-            t = re.sub(r"\s{2,}", " ", t) or orig
+        # ... or into just the rest of its own clause ("kneeling on wet stone next to a window" + "next to a window")
+        clause = re.split(r"[.,;:!?]", base[e:starts[n + 1]].lstrip(" ,;"))[0].strip()
+        for rep in (nxt, clause):
+            if len(rep) > 8 and rep.lower() in t.lower() and rep.lower() not in orig.lower():
+                i = t.lower().rfind(rep.lower())
+                t = (t[:i] + t[i + len(rep):]).strip(" ,;")
+                t = re.sub(r"\s{2,}", " ", t) or orig
+        # ... or repeats the word just before it ("standing" + "standing in a flooded tunnel")
+        prev = re.search(r"([A-Za-z'-]+)\s*$", base[:s])
+        if prev and orig and t.lower().startswith(prev.group(1).lower() + " ") \
+                and not orig.lower().startswith(prev.group(1).lower() + " "):
+            t = t[len(prev.group(1)) + 1:].lstrip()
+        if t and orig and (s == 0 or re.search(r"[.!?]\s*$", base[:s])):
+            t = t[:1].upper() + t[1:]  # it starts a sentence
         out.append(base[at:s])
-        out.append((", " + t) if (not orig and t) else t)  # an added slot goes in after a comma
+        if not orig and t and s == 0:
+            out.append(t[:1].upper() + t[1:] + ", ")  # an added camera slot leads the prompt
+        else:
+            out.append((", " + t) if (not orig and t) else t)  # an added slot goes in after a comma
         at = e
     out.append(base[at:])
     return re.sub(r"\s{2,}", " ", "".join(out)).strip()
@@ -366,7 +415,7 @@ class LCVisionPromptBatch:
         return text, text, key
 
     def _split(self, vm, base, parts, seed):
-        key = _h(base, ",".join(p.lower() for p in parts), "v4")
+        key = _h(base, ",".join(p.lower() for p in parts), "v7")
         if key in _SPLITS:
             return _SPLITS[key]
         ph = _phrases(base)
@@ -432,11 +481,28 @@ class LCVisionPromptBatch:
                 if labels[i] == "follow" and _words(t) & PLACE_WORDS:
                     labels[i] = "vary"
         spans = [(s, e, t, lab.upper()) for (s, e, t), lab in zip(ph, labels) if lab in ("vary", "follow")]
+        # neighboring VARY pieces of one sentence are one thing ("Camera at chest height, waist-up framing", "sitting
+        # | on a tall stool with both forearms | on her knees"): rewritten apart, the idea came out twice or bits stayed
+        merged = []
+        for sp in spans:
+            if (merged and sp[3] == "VARY" and merged[-1][3] == "VARY"
+                    and re.fullmatch(r"[\s,]*", base[merged[-1][1]:sp[0]])):
+                s0 = merged[-1][0]
+                merged[-1] = (s0, sp[1], base[s0:sp[1]], "VARY")
+            else:
+                merged.append(sp)
+        spans = merged
+        # a picked part the prompt never states (no pose, no camera angle) gets its own slot where the shared order
+        # puts it: a camera first (camera words at the end turn into a camera she holds), a pose, an expression or a
+        # mood late, anything else at the end of the first sentence. Parts that land on the same spot share one slot
         if not any(sp[3] == "VARY" for sp in spans):
-            # the prompt never says it (no pose, no camera angle): add one slot at the end of the first sentence
-            dot = base.find(".")
-            at = dot if dot > 0 else len(base)
-            spans = sorted(spans + [(at, at, "", "VARY")])
+            missing = list(parts)
+        else:
+            missing = [p for p in parts if p.lower() in LEX and not any(_lex_hit(p.lower(), t) for _, _, t in ph)]
+        added: dict[int, list[str]] = {}
+        for p in missing:
+            added.setdefault(_slot_at(base, [p]), []).append(p)
+        spans = sorted(spans + [(at, at, "", "VARY") for at in added])
         # the model's old words only count where they sit in a phrase that changes (it sometimes lists unrelated ones)
         changing = set().union(*[_words(t) for _, _, t, _ in spans] or [set()])
         # the clash check never gets her (person, face, hair, clothes) or the style words: those always fit a new place
@@ -444,12 +510,12 @@ class LCVisionPromptBatch:
         keeps = [(s, e, t) for (s, e, t), lab in zip(ph, labels) if lab == "keep" and not _unpicked_self(parts, t)
                  and not set(re.findall(r"[a-z]+", t.lower())) & (_PERSON | GROUPS["style"][1])]
         split = {"spans": spans, "old": sorted((old_words & changing) | vwords | place_old), "keeps": keeps,
-                 "self_only": self_only}
+                 "self_only": self_only, "added": added}
         if any(sp[3] == "VARY" for sp in spans):
             _SPLITS[key] = split
         return split
 
-    def _variants(self, vm, base, spans, parts, n, variation, seed, old=None):
+    def _variants(self, vm, base, spans, parts, n, variation, seed, old=None, added=None):
         k = len(spans)
         idea = {"type": "string"}
         if [p.lower() for p in parts] in (["camera angle"], ["framing"]):
@@ -473,8 +539,9 @@ class LCVisionPromptBatch:
 
         listing = "\n".join(
             f"{i + 1}. [{kind}] {t}{note(t, kind)}" if t else f"{i + 1}. [VARY] (not in the prompt yet: write a short "
-                                                              f"phrase that states the {', '.join(parts)})"
-            for i, (_, _, t, kind) in enumerate(spans))
+                                                              f"phrase that states the "
+                                                              f"{', '.join((added or {}).get(s, parts))} only)"
+            for i, (s, _, t, kind) in enumerate(spans))
         old = sorted(old or set().union(*[_words(t) for _, _, t, kind in spans if kind == "VARY"]) or {"none"})
         rules = VARIANT_RULES.format(n=n, parts=", ".join(parts), words=max(4, int(variation * 0.7)), old=", ".join(old))
         user = f"The whole prompt, for context:\n{base}\n\nPhrases to change:\n{listing}"
@@ -623,14 +690,16 @@ class LCVisionPromptBatch:
         if parts:
             split = self._split(vision_model, base, parts, seed)
             spans, old = split["spans"], set(split.get("old") or [])
+            added = split.get("added") or {}
             if any(sp[3] == "VARY" for sp in spans):
                 marked = _fill(base, spans, [f"[{t}]" if kind == "VARY" else f"{{{t}}}" for _, _, t, kind in spans])
                 removed = ("Base, with what changes marked ([vary] {follow}):\n" + marked + "\n\nRemoved:\n"
-                           + "\n".join(f"- {kind.lower()}: {t or '(added: ' + ', '.join(parts) + ')'}"
-                                       for _, _, t, kind in spans))
-                rows = self._variants(vision_model, base, spans, parts, n, int(variation), seed, old)
+                           + "\n".join(f"- {kind.lower()}: {t or '(added: ' + ', '.join(added.get(a, parts)) + ')'}"
+                                       for a, _, t, kind in spans))
+                rows = self._variants(vision_model, base, spans, parts, n, int(variation), seed, old, added)
                 if len(rows) < n:  # cut short (token cap): one more call for the rest
-                    rows += self._variants(vision_model, base, spans, parts, n - len(rows), int(variation), seed + 1, old)
+                    rows += self._variants(vision_model, base, spans, parts, n - len(rows), int(variation), seed + 1,
+                                           old, added)
                 rows = rows[:n]
                 extra = ([[] for _ in rows] if split.get("self_only")
                          else self._contradictions(vision_model, base, split.get("keeps") or [], rows, seed))

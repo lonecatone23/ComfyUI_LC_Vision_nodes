@@ -244,7 +244,8 @@ def build_prompt(kind: str, name: str, d: dict, family: str = "Krea 2", style: s
     for c in people:  # the image model doesn't know the names: each one becomes their look, once
         action = re.sub(rf"\b{re.escape(c['name'])}\b", f"the {c.get('who') or 'person'} ({c.get('look', '').strip()})", action, count=1)
         action = re.sub(rf"\b{re.escape(c['name'])}\b", f"the {c.get('who') or 'person'}", action)
-    return _sentences(f"A wide film still at {name}. {where}. {action}.{extra} Cinematic framing, eye level. {suffix}")
+    # camera words lead: at the end they turn into a camera someone holds (prompt order bench, 2026-11-22)
+    return _sentences(f"A wide film still at {name}, eye level, cinematic framing. {where}. {action}.{extra} {suffix}")
 
 
 def _size(kind: str, family: str, portrait: int, wide_w: int, wide_h: int) -> tuple:

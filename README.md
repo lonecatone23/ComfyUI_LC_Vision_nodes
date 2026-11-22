@@ -169,11 +169,13 @@ A quality gate for finished renders. Asks the vision model yes/no questions and 
 
 Text-only rewrite pass over the same model handle. A vision model is still a perfectly good text-only LLM when nothing gets attached to the message.
 
-- **Presets live in `lc_vision_presets.json`**, not code. Ships with four original presets (`Enhance`, `Refine`, `Creative Rewrite`, `Detailed Visual`), `Character Anchor`, and four for **Flux 3 Klein**.
+- **Presets live in `lc_vision_presets.json`**, not code. Ships with four original presets (`Enhance`, `Refine`, `Creative Rewrite`, `Detailed Visual`), `Pose from Picture`, `Character Anchor`, and four for **Flux 3 Klein**.
 - **Flux 3 presets:** `Flux 3 Text to Image`, `Flux 3 Edit`, `Flux 3 Layout (boxes)` and `Flux 3 Edit (boxes)` are Black Forest Labs' own prompt upsampler instructions, unchanged. The edit presets need the picture you edit in **image_1**.
 - **image_1 / image_2:** optional pictures the model sees while it rewrites.
 - **`Custom` preset** sits at the top of the dropdown. Reads the system prompt straight from the `custom_system_prompt` socket instead of the JSON file, for full per-workflow control. A new node starts on `Enhance`, and an empty `custom_system_prompt` falls back to `Enhance` instead of erroring.
 - **`Character Anchor` preset** for character datasets: give it the reference picture(s) and a few notes ("blonde hair, fit") and it writes one short description of the person only (face, eyes, hair, skin, build). Never the clothing, pose, background or light, so every prompt in a list can set those. Its inputs don't change between rows, so it runs once per list.
+- **`Pose from Picture` preset:** a reference picture in **image_1**, and it writes two sentences: where the camera stands, then the pose as body mechanics (weight, hips, shoulders, head, each hand, feet). Nothing about who she is, what she wears or where she is, so it drops into any prompt.
+    - 💡 Camera sentence goes at the front of your prompt, the pose near the end.
 - **`style_tag`**, same shared list as Caption.
 - **MOSS BBOX:** base prompt into LC MOSS Layout Prompt's prompt box, its output into `prompt_text`. The output stays a layout: the scene and every box are enhanced on their own, box names and positions kept. Box captions stay short (about 60 tokens): longer, the subjects outgrow their boxes. Bypass the Layout Prompt and the base prompt comes through as a normal prompt. No base prompt: the scene stays empty and the model picks the setting.
 - **✨ boxes in LC Bounding Boxes (LC123):** an idea row on the box editor. With a picture, the vision model finds the subjects and writes their boxes, descriptions and palettes (Qwen3-VL 8B is the default: its own box grid is the editor's); without one, it plans the boxes from the idea. Signs with words become text boxes. Runs outside the queue, never during a render, and unloads when done.
@@ -187,6 +189,7 @@ A wildcard processor with a brain. One base prompt, pick what changes, and it wr
 - **vary:** what changes, from the 🎯 **What changes** list or typed (Location, Time of day, Hair color, Outfit, Pose, Camera angle, etc.). Everything you didn't pick stays word for word.
 - Details tied to the old version adapt with it: change the place and the railing, the string lights and the skyline go too.
 - Her face, hair and clothes stay word for word unless you pick them: a new place never changes her eye color or the fur on her hood.
+- A part the base never mentions gets added where it belongs: a camera angle at the front, a pose or expression near the end. New poses are written as body mechanics.
 - **count:** prompts per run, one picture each. New seed = new batch, same seed = same batch.
 - **variation:** how much each new part gets to say. 60 is a quick swap, 150 and up a rich new description.
 - **enhance_base / style_tag / max_tokens:** rewrite the base once (more detail, a style, a length) and keep it through every seed. 🗑 **Clear kept base** starts over.
@@ -357,6 +360,9 @@ A sidebar tab (the LC logo on the left) that reads the open workflow for you. Wo
 - Seeing `[LC Vision] Decode failed on a reused model instance...; rebuilding and retrying once.` in the console is **expected, not a bug**. That's the self-heal catching the upstream decode bug and recovering on its own. Only flag it if the retry fails too.
 - 4B suits Moviemaker and video workloads (more memory headroom for multi-frame batches). 8B suits Caption and image fidelity.
 - ✋ Moviemaker's `[Shot N]` label identifies which reference a moment involves. It is not a cut instruction. Ask it for one continuous take per segment if you see it start cross-cutting.
+- 💡 **Prompt order:** Caption, Filter, Smart Prompt Batch and the Enhancer presets all write in one order: **camera, light, place, person + outfit, expression, pose, mood**, style words last. The room first, then the person.
+    - Camera words at the end turn into a camera she's holding (benched on Krea 2). A pose written early drifts.
+    - Beyond that the exact order barely matters. Keeping it the same every time is what lets the Filter find each part.
 
 ## Example workflows
 
