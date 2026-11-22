@@ -6,7 +6,7 @@ Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [loneca
 - **CivitAI:** [lonecatone23](https://civitai.com/user/lonecatone23)
 - **Instagram:** [synth.studio.models](https://www.instagram.com/synth.studio.models/)
 - **Support:** [Buy me a ☕](https://ko-fi.com/lonecatone)
-- **Version:** 1.6.39 · **15 nodes** + the **Vision Assistant** sidebar
+- **Version:** 1.6.40 · **15 nodes** + the **Vision Assistant** sidebar
 
 > Local Qwen-VL vision tools built to survive a real ComfyUI session: model stays loaded, several references in one call, and it heals itself when the upstream backend's own decode bug fires.
 
@@ -146,6 +146,7 @@ Loads a Qwen-VL GGUF model + its mmproj vision handler once, then hands a persis
 
 Handle + prompt + references → text.
 
+- The default instruction describes a picture in the shared prompt order (camera, light, place, person, expression, pose, mood), so a caption pastes straight into a prompt.
 - **Up to three independent reference images plus a separate reference video**, each labeled distinctly (`<Reference 1>`, `<Reference 2>`, `<Target Video>`) instead of merged into one batch. That's the actual gap in the upstream node this pack exists to close.
 - **`max_image_side`** downscales references before sending. Oversized references were the direct cause of the original node's "exceeding capacity" crashes, keep it in proportion with the Loader's `n_batch`.
 - **`max_tokens`** is a length limit the model actually follows: it's told to fit under it and end on a whole sentence. If it still runs over, the text is cut back to the last complete sentence, so a low limit gives a shorter caption, never a chopped one. Same for Prompt Enhancer.
@@ -167,7 +168,7 @@ A quality gate for finished renders. Asks the vision model yes/no questions and 
 
 ## LC Vision Prompt Enhancer 📝
 
-Text-only rewrite pass over the same model handle. A vision model is still a perfectly good text-only LLM when nothing gets attached to the message.
+Rewrite pass over the same model handle. Text only unless you wire a picture into **image_1** / **image_2**: a vision model is still a perfectly good text-only LLM.
 
 - **Presets live in `lc_vision_presets.json`**, not code. Ships with four original presets (`Enhance`, `Refine`, `Creative Rewrite`, `Detailed Visual`), `Pose from Picture`, `Character Anchor`, and four for **Flux 3 Klein**.
 - **Flux 3 presets:** `Flux 3 Text to Image`, `Flux 3 Edit`, `Flux 3 Layout (boxes)` and `Flux 3 Edit (boxes)` are Black Forest Labs' own prompt upsampler instructions, unchanged. The edit presets need the picture you edit in **image_1**.
@@ -202,6 +203,7 @@ Sits between **LC Vision Loader** and **Caption** / **Prompt Enhancer** and deci
 
 - **describe:** only these parts get written (Person, Outfit, Pose, etc.). **leave_out:** these never do (Location, Background, etc.). Both have a ✓ list.
 - Each part takes in what belongs to it: Location also drops the railings, lights and signs.
+- Several parts in **describe** get written in the shared prompt order (camera first, pose near the end). **Pose** is written as body mechanics.
 - 💡 Caption **Person, Outfit** only, then vary **Location** in Smart Prompt Batch: no old place left to clash with the new one.
 
 ## LC Image with Prompt 🖼️
