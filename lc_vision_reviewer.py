@@ -75,6 +75,10 @@ class LCVisionReviewer:
                 "hands": ("BOOLEAN", {"default": True, "tooltip": "Fingers: extra, missing or fused."}),
                 "faces": ("BOOLEAN", {"default": True, "tooltip": "Melted or doubled features, mismatched eyes."}),
                 "text": ("BOOLEAN", {"default": False, "tooltip": "Signs, labels and logos spelled right."}),
+                "presence": ("BOOLEAN", {"default": False,
+                                         "tooltip": "Anti-mannequin checks: the body is supported and balanced (no "
+                                                    "floating feet or props), and there is one copy of the person (no "
+                                                    "clone or inset picture)."}),
                 "artifacts": ("BOOLEAN", {"default": False, "tooltip": "Warped objects, extra limbs, seams, smears."}),
                 "on_fail": (ON_FAIL, {"default": "flag",
                                       "tooltip": "flag: always pass the image on, just set passed to false and say why "
@@ -93,13 +97,6 @@ class LCVisionReviewer:
                                          "tooltip": "How many failed checks are allowed before it counts as a fail."}),
                 "video_frames": ("INT", {"default": 6, "min": 1, "max": 32,
                                          "tooltip": "For a video: how many frames across the clip to look at."}),
-                # declared (not left to the frontend): with the forceInput prompt above, an undeclared seed control made
-                # the frontend drop a saved value on load and shift every setting after it
-                "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1, "control_after_generate": True}),
-                "presence": ("BOOLEAN", {"default": False,
-                                         "tooltip": "Anti-mannequin checks: the body is supported and balanced (no "
-                                                    "floating feet or props), and there is one copy of the person (no "
-                                                    "clone or inset picture)."}),
             },
         }
 
@@ -117,8 +114,8 @@ class LCVisionReviewer:
         finally:
             release(vision_model)
 
-    def _run(self, vision_model: LCVisionModel, image, hands, faces, text, artifacts, on_fail, prompt="",
-             custom_checks="", max_failures=0, video_frames=6, seed=0, presence=False):
+    def _run(self, vision_model: LCVisionModel, image, hands, faces, text, artifacts, on_fail, presence=False,
+             prompt="", custom_checks="", max_failures=0, video_frames=6):
         if vision_model is None:
             raise ValueError("[LC Vision] Reviewer received no model -- connect an LC Vision Loader.")
         qs = _questions(hands, faces, text, artifacts, prompt, custom_checks, presence)
@@ -144,7 +141,7 @@ class LCVisionReviewer:
             resp = generate_with_recovery(vision_model, messages=[{"role": "system", "content": SYSTEM},
                                                                   {"role": "user", "content": content}],
                                           max_tokens=16 + 8 * len(qs), temperature=0.0, top_p=1.0, repeat_penalty=1.0,
-                                          seed=seed)
+                                          seed=0)  # temperature 0 = always the likeliest answer: no seed to choose
             raw = strip_thinking(((resp or {}).get("choices") or [{}])[0].get("message", {}).get("content", "") or "")
             ans = _answers(raw, len(qs))
             tag = "" if len(groups) == 1 else f"image {gi + 1}: "
