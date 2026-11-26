@@ -314,6 +314,40 @@ export const SWAPS = [
       return { amount: Math.max(-5, Math.min(5, v("detail_amount", 0.1) * (cfg > 0 ? cfg : 1))), mode: "classic" };
     },
   },
+  // core Trim Audio Duration: start + length in seconds become LC Audio Crop's start / end times (M:SS.ss).
+  // A negative start counts from the end, which LC Audio Crop can't do; wired start / length can't be read either
+  {
+    from: "TrimAudioDuration", to: "LCAudioCrop", names: { AUDIO: "audio" }, drop: ["start_index", "duration"],
+    when: (old) => {
+      const v = (n, fb) => { const x = Number(old.widgets?.find((w) => w.name === n)?.value); return Number.isFinite(x) ? x : fb; };
+      const wired = ["start_index", "duration"].some((n) => old.inputs?.find((i) => i.name === n)?.link != null);
+      return !wired && v("start_index", 0) >= 0;
+    },
+    whyNot: "its start counts back from the end of the audio, or its times come from wires",
+    set: (old) => {
+      const v = (n, fb) => { const x = Number(old.widgets?.find((w) => w.name === n)?.value); return Number.isFinite(x) ? x : fb; };
+      const t = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(2).padStart(5, "0")}`;
+      const start = v("start_index", 0);
+      return { start_time: t(start), end_time: t(start + v("duration", 60)) };
+    },
+  },
+  // Image Saver (alexopus) video save + its metadata node. frame_rate 0 = the VIDEO's own fps. The %time / %seed name
+  // tokens have no LC version: LC Save Video numbers its files instead
+  {
+    from: "Image Saver Save Video", to: "LCSaveVideo", names: {}, drop: ["format", "codec", "crf", "embed_workflow", "time_format", "filename_prefix"],
+    set: (old) => {
+      const v = (n) => old.widgets?.find((w) => w.name === n)?.value;
+      const prefix = String(v("filename_prefix") ?? "video/LC_AV").replace(/%[a-z_]+/gi, "").replace(/[_\-\s]+$/g, "").replace(/[_\-\s]+\//g, "/") || "video/LC_AV";
+      const crf = Number(v("crf"));
+      return { frame_rate: 0, filename_prefix: prefix, save_metadata: v("embed_workflow") !== false,
+        ...(Number.isFinite(crf) ? { crf: Math.max(0, Math.min(51, Math.round(crf))) } : {}) };
+    },
+  },
+  {
+    from: "Image Saver Metadata", to: "LCSaveVideoMetadata", outAt: { 0: "metadata" },
+    names: { sampler_name: "sampler", scheduler_name: "scheduler", modelname: "models" },
+    drop: ["clip_skip", "additional_hashes", "download_civitai_data", "easy_remix", "custom"],
+  },
 ];
 
 // one number -> LC Slider settings (a range around the value)
@@ -500,6 +534,9 @@ function valid(w, v) {
 }
 
 /** Replace one node with its LC twin. Returns the new node, or null. */
+// wires a swap couldn't make because the other end is still the old, mismatched node (kept for this page session)
+const PENDING = [];
+
 export function swapNode(old, base) {
   const sw = swapFor(old, base);
   const graph = old.graph || app.graph;
@@ -519,6 +556,8 @@ export function swapNode(old, base) {
   const outs = [];
   // outAt nodes connect by position: their outputs can rename themselves once an input is wired (LC Stop takes the input's type)
   for (const l of outLinks(old)) outs.push({ from: outTo(sw, old, l.origin_slot), at: sw.outAt ? l.origin_slot : null, node: graph.getNodeById(l.target_id), slot: l.target_slot });
+  const oldId = old.id;
+  const oldOuts = (old.outputs || []).map((o) => ({ name: o.name }));
   const pos = [...old.pos], mode = old.mode, size = old.size ? [...old.size] : null;
   const look = { color: old.color, bgcolor: old.bgcolor }; // a colour you gave the old node stays (else the LC node's own)
   const converted = sw.convert ? sw.convert(old) : null; // read before the old node goes
@@ -547,11 +586,32 @@ export function swapNode(old, base) {
   }
   for (const c of ins) {
     const slot = fresh.findInputSlot?.(c.to) ?? fresh.inputs?.findIndex((i) => i.name === c.to);
-    if (c.from && slot >= 0) c.from.connect(c.slot, fresh, slot);
+    if (c.from && slot >= 0 && !c.from.connect(c.slot, fresh, slot)) {
+      // the old feeder's type doesn't fit the LC input (Image Saver Metadata -> LC Save Video): wire it when it's swapped too
+      PENDING.push({ fromId: c.from.id, fromSlot: c.slot, toId: fresh.id, toSlot: slot });
+    }
   }
   for (const c of outs) {
     const slot = c.at ?? fresh.findOutputSlot?.(c.from) ?? fresh.outputs?.findIndex((o) => o.name === c.from);
-    if (c.node && slot >= 0) fresh.connect(slot, c.node, c.slot);
+    if (c.node && slot >= 0 && !fresh.connect(slot, c.node, c.slot)) {
+      PENDING.push({ fromId: fresh.id, fromSlot: slot, toId: c.node.id, toName: c.node.inputs?.[c.slot]?.name });
+    }
+  }
+  // wires that waited for this node: the other end is already an LC node
+  for (let k = PENDING.length - 1; k >= 0; k--) {
+    const p = PENDING[k];
+    if (p.fromId === oldId) {  // this node fed an LC node whose input didn't take the old type
+      const to = graph.getNodeById(p.toId);
+      const slot = sw.outAt?.[p.fromSlot] !== undefined ? p.fromSlot
+        : fresh.findOutputSlot?.(outTo(sw, { outputs: oldOuts }, p.fromSlot)) ?? -1;
+      if (to && slot >= 0) fresh.connect(slot, to, p.toSlot);
+      PENDING.splice(k, 1);
+    } else if (p.toId === oldId) {  // an LC node's output didn't fit this node's old input
+      const from = graph.getNodeById(p.fromId);
+      const slot = fresh.findInputSlot?.(sel(sw, p.toName)) ?? -1;
+      if (from && slot >= 0) from.connect(p.fromSlot, fresh, slot);
+      PENDING.splice(k, 1);
+    }
   }
   if (compValues) {
     const comp = LiteGraph.createNode(sw.companion.type);

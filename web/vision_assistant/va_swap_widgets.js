@@ -118,4 +118,10 @@ export const WIDGET_ORDER = {
   // PlagueKind
   VisualBBoxCrop: ["aspect_ratio", "custom_ratio_w", "custom_ratio_h", "crop_x", "crop_y", "crop_w", "crop_h", "show_crop_values"],
   LTX_lora_loader: ["mode", "stack_data"],
+  // ComfyUI core
+  TrimAudioDuration: ["start_index", "duration"],
+  // Image Saver (alexopus), video save + metadata
+  "Image Saver Save Video": ["filename_prefix", "format", "codec", "crf", "embed_workflow", "time_format"],
+  "Image Saver Metadata": ["modelname", "positive", "negative", "width", "height", "seed_value", "steps", "cfg", "sampler_name",
+    "scheduler_name", "denoise", "clip_skip", "additional_hashes", "download_civitai_data", "easy_remix", "custom"],
 };
