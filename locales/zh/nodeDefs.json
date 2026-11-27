@@ -21,7 +21,7 @@
         "tooltip": "-1 = 模型默认值。Qwen-VL 模型至少需要 1024 才能可靠定位。"
       },
       "image_max_tokens": {
-        "tooltip": "-1 = 除 n_batch 外不设上限。"
+        "tooltip": "一张图片最多使用的 token 数。-1 = 自动：n_ctx 的一半（8192 时为 4096）。调低它可以在同样的 n_ctx 里放下更多图片或更长的回答。"
       },
       "batch_max_tokens": {
         "tooltip": "vision chat handler 自己的图像 embedding 每批 token 上限，独立于 n_batch/n_ubatch。使用多张大参考图时，与 n_batch 一起调高。"

@@ -715,6 +715,12 @@ def build_llama(params: LCVisionBuildParams) -> tuple[Any, Any]:
     max_tok = params.image_max_tokens
     if cap and (max_tok < 0 or max_tok > cap):
         max_tok = cap
+    if max_tok < 0:  # auto: a picture may fill at most half the context, the rest is for the prompt and the answer.
+        # Qwen-VL's own limit lets a big picture take thousands of tokens, and Qwen3-VL can't make room once the
+        # context is full (newer llama_cpp builds stop with "Context Shift is explicitly disabled").
+        max_tok = max(256, int(params.n_ctx) // 2)
+    if min_tok > 0 and min_tok > max_tok:
+        min_tok = max_tok
     chat_handler = handler_cls(
         **handler_kw,
         mmproj_path=params.mmproj_path,
@@ -848,7 +854,7 @@ class LCVisionLoader:
                 ),
                 "image_max_tokens": (
                     "INT",
-                    {"default": -1, "min": -1, "max": 16384, "tooltip": "-1 = no cap beyond n_batch."},
+                    {"default": -1, "min": -1, "max": 16384, "tooltip": "Most tokens one picture may use. -1 = auto: half of n_ctx (4096 at 8192). Lower it to fit more pictures or a longer answer in the same n_ctx."},
                 ),
                 "batch_max_tokens": (
                     "INT",

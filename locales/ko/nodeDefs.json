@@ -21,7 +21,7 @@
         "tooltip": "-1 = 모델 기본값. Qwen-VL 모델은 안정적인 grounding을 위해 최소 1024가 필요합니다."
       },
       "image_max_tokens": {
-        "tooltip": "-1 = n_batch 이상의 상한 없음."
+        "tooltip": "그림 한 장이 쓸 수 있는 최대 토큰 수. -1 = 자동: n_ctx의 절반(8192이면 4096). 낮추면 같은 n_ctx에 그림을 더 많이, 또는 더 긴 답을 넣을 수 있습니다."
       },
       "batch_max_tokens": {
         "tooltip": "이미지 임베딩에 대한 vision chat handler 자체의 배치당 토큰 한도로, n_batch/n_ubatch와 별개입니다. 큰 reference가 여러 개일 때 n_batch와 함께 올리세요."

@@ -161,7 +161,16 @@ def generate_with_recovery(model: LCVisionModel, **chat_kwargs: Any) -> dict:
     reset_model_state(model.llm)
 
     def _call():
-        return model.llm.create_chat_completion(**chat_kwargs)
+        try:
+            return model.llm.create_chat_completion(**chat_kwargs)
+        except RuntimeError as exc:
+            if "Context Shift" in str(exc) or "increase n_ctx" in str(exc):
+                n = getattr(model, "n_ctx", "?")
+                raise RuntimeError(
+                    f"[LC Vision] The pictures, prompt and answer don't fit in n_ctx {n}. On LC Vision Loader, raise "
+                    "n_ctx (16384), or lower image_max_tokens (2048) or this node's max_tokens. Smaller pictures "
+                    "also help.") from exc
+            raise
 
     try:
         return _call()
